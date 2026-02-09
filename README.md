@@ -1,4 +1,4 @@
-# Edge TTS - Ahmet Sesli Metin Okuma Uygulaması
+# Edge TTS Destekli Yorumlu Youtube Shorts Yapma Uygulaması
 
 Bu uygulama, Microsoft Edge TTS servisini kullanarak Türkçe metinleri "Ahmet" sesiyle seslendiren bir masaüstü uygulamasıdır.
 
