@@ -7,3 +7,19 @@ __pycache__/
 env/
 venv/
 .venv/
+
+# Build outputs
+dist/
+build/
+*.exe
+
+# FFmpeg / outputs
+output/
+*.mp4
+*.wav
+*.mp3
+
+# Python cache
+__pycache__/
+*.pyc
+
