@@ -1,17 +1,9 @@
-# Edge TTS Destekli Yorumlu Youtube Shorts Yapma Uygulaması
+# Edge TTS Destekli Yorumlu Video Uygulamaları
 
-Bu uygulama, Microsoft Edge TTS servisini kullanarak Türkçe metinleri "Ahmet" sesiyle seslendiren bir masaüstü uygulamasıdır.
+Bu repoda iki uygulama vardır:
 
-## Özellikler
-
-- ✨ Modern ve kullanıcı dostu arayüz
-- 🎤 Ahmet sesiyle Türkçe metin okuma
-- 📝 Ses dosyasına isim verebilme
-- 📁 Kayıt klasörü seçebilme
-- 💾 Ses dosyasını MP3 formatında kaydetme
-- ⏹️ Seslendirmeyi durdurma özelliği
-- 🔄 Diğer Türkçe sesleri seçebilme
-- 📦 EXE dosyası oluşturma (Python kurmadan çalıştırma)
+- **1) EdgeTTS-Ahmet:** Sadece metni Ahmet sesiyle okuyup MP3 üreten basit masaüstü TTS aracı
+- **2) VideoFactory:** Video + üst bar + yorum görseli + TTS senkronu ile final video üreten uygulama
 
 ## Kurulum
 
@@ -48,30 +40,19 @@ veya
 python3 -m pip install -r requirements.txt
 ```
 
-### 4. Uygulamayı Çalıştırma
+### 4. EdgeTTS-Ahmet Uygulamasını Çalıştırma (isteğe bağlı)
 
 **Python ile:**
 ```bash
 python main.py
 ```
 
-**EXE olarak (Python kurmadan):** Önce EXE oluşturun, sonra `dist\EdgeTTS-Ahmet.exe` dosyasını çalıştırın.
+**EXE olarak (Python kurmadan):**
 
-#### EXE Dosyası Oluşturma
+1. `build.bat` dosyasını çalıştırın → `dist\EdgeTTS-Ahmet.exe` oluşur
+2. `dist\EdgeTTS-Ahmet.exe` dosyasını çalıştırın
 
-1. Proje klasöründe **Komut İstemi** veya **PowerShell** açın
-2. Bağımlılıkları yükleyin: `pip install -r requirements.txt`
-3. `build.bat` dosyasını çalıştırın (çift tıklayın veya `build.bat` yazın)
-4. İşlem bitince EXE dosyası `dist\EdgeTTS-Ahmet.exe` konumunda oluşur
-5. Bu EXE'yi istediğiniz yere kopyalayıp Python olmayan bilgisayarlarda da çalıştırabilirsiniz
-
-Manuel build için:
-```bash
-pip install pyinstaller
-pyinstaller --onefile --windowed --name "EdgeTTS-Ahmet" --collect-all edge_tts main.py
-```
-
-## Kullanım
+Basit TTS aracı için:
 
 1. **Okunacak Metin** alanına metninizi yazın
 2. **Ses dosyası adı** kutusuna kaydedeceğiniz dosyanın adını yazın (örn: `bolum_01` → `bolum_01.mp3`)
@@ -125,20 +106,61 @@ pip install -r requirements.txt
 python -m src.main
 ```
 
-EXE: `build_exe.bat` çalıştır → `dist\VideoFactory.exe`. FFmpeg yoksa [ffmpeg](https://ffmpeg.org/download.html) indirip `ffmpeg.exe` ve `ffprobe.exe` dosyalarını EXE ile aynı klasöre koyun.
+**EXE:** `build_exe.bat` çalıştır → `dist\VideoFactory.exe`.  
+FFmpeg yoksa `ffmpeg.exe` ve `ffprobe.exe` dosyalarını EXE ile aynı klasöre koyun.
+
+## Özellikler (VideoFactory)
+
+- 🎬 **Intro + ana video**:
+  - Intro: videonun ilk karesi + header bar + yorum görseli, **TTS süresi boyunca** sabit
+  - Sonra video **0. saniyeden** başlayarak header bar ile birlikte oynar
+- 🧊 **Üst bar (header)**:
+  - Sol: logo (PNG)
+  - Sağ: kanal adı (büyük), altında kullanıcı adı (küçük)
+  - Yarı saydam koyu arka plan, çözünürlüğe göre otomatik ölçek
+- 💬 **Yorum overlay**:
+  - Ekranın ortasına yakın, üst bardan sonra kalan alanda
+  - Ekran genişliğinin ~%85’ini geçmeyecek şekilde otomatik ölçek
+- 🔊 **Ses**:
+  - TTS: Edge TTS (varsayılan `tr-TR-AhmetNeural`), sonundaki gereksiz sessizlik otomatik kırpılır
+  - Intro süresince sadece TTS, ardından **videonun orijinal sesi** devam eder
+  - Sesler AAC 256 kbps olarak encode edilir
+- 📐 **Çıktı**:
+  - Sabit: **1080x1920, 30 fps, H.264 (mp4)**
+- 🧾 **Kanal profilleri**:
+  - Logo + kanal adı + kullanıcı adı kayıtlı kanallar olarak saklanır (`channels.json`)
+  - Açılışta tek kanal varsa otomatik seçilir
+- ⚙️ **Otomatik medya seçimi (isteğe bağlı)**:
+  - Son indirilen video (mp4/mov) için **video klasörü** (örn. `Downloads`)
+  - Son alınan ekran görüntüsü için **görsel klasörü** (örn. `Pictures/Screenshots`)
+  - Checkbox ile aç/kapa; yollar `settings.json` içinde saklanır
+- 📝 **Otomatik dosya adı**:
+  - Çıktı video dosya adı = yorum metni (boşluk ve Türkçe karakterler korunur, sadece Windows’ta yasak karakterler temizlenir)
 
 ## Örnek CLI
 
 ```bash
-python -m src.main --video video.mp4 --logo logo.png --channel_name "Kanal" --username "@kullanici" --comment_image yorum.png --comment_text "Okunacak yorum metni" --out cikti.mp4 --mute_video_audio true
+python -m src.main \
+  --video video.mp4 \
+  --logo logo.png \
+  --channel_name "Kanal" \
+  --username "@kullanici" \
+  --comment_image yorum.png \
+  --comment_text "Okunacak yorum metni" \
+  --out cikti.mp4
 ```
 
 ## Girdiler
 
-- Video (mp4/mov), logo (png), kanal adı, kullanıcı adı
-- Yorum görseli (png/jpg), yorum metni (TTS ile okunur)
-- Video orijinal sesi: açık/kapalı (varsayılan kapalı)
-- Çıktı yolu, opsiyonel çözünürlük/fps
+- **GUI**:
+  - Video (mp4/mov) → boşsa otomatik son indirilen video (auto açık ise)
+  - Logo (png), kanal adı, kullanıcı adı (kanal profili üzerinden)
+  - Yorum görseli (png/jpg) → boşsa otomatik son ekran görüntüsü (auto açık ise)
+  - Yorum metni (TTS ile okunur)
+  - Çıktı klasörü (varsayılan `output`); dosya adı yorum metninden otomatik üretilir
+- **CLI**:
+  - `--video`, `--logo`, `--channel_name`, `--username`, `--comment_image`, `--comment_text`, `--out`
+  - Çıktı: 1080x1920, 30 fps mp4
 
 ## Lisans
 
