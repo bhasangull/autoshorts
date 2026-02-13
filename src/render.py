@@ -193,8 +193,11 @@ def create_header_png(
     img.save(out_path, "PNG")
 
 
-# Sabit çıktı: 1080x1920, 30 fps
-OUT_W, OUT_H, OUT_FPS = 1080, 1920, 30
+# Çözünürlük: dikey video (genişlik x yükseklik), crf, x264_preset
+RESOLUTION_PARAMS = {
+    "720p": (720, 1280, 23, "fast"),   # out_w, out_h, crf, x264_preset
+    "1080p": (1080, 1920, 23, "medium"),
+}
 
 
 def run_pipeline(
@@ -207,14 +210,19 @@ def run_pipeline(
     tts_duration_sec: float,
     output_path: str,
     log_cb: Optional[Callable[[str], None]] = None,
+    quality_resolution: str = "1080p",
+    quality_fps: str = "30",
 ) -> bool:
     """
-    Intro (ilk frame + header + yorum, TTS süresi) + main (video + header, orijinal ses).
-    Çıktı her zaman 1080x1920, 30 fps.
+    Intro + main. quality_resolution (720p/1080p) ve quality_fps (30/60) ayrı seçilir (AAC 256k korunur).
     """
     def log(s):
         if log_cb:
             log_cb(s)
+
+    res = RESOLUTION_PARAMS.get(quality_resolution, RESOLUTION_PARAMS["1080p"])
+    out_w, out_h, crf, x264_preset = res
+    fps = 60 if quality_fps == "60" else 30
 
     ffmpeg = get_ffmpeg()
     ffprobe = get_ffprobe()
@@ -222,8 +230,6 @@ def run_pipeline(
     if info.get("width", 0) == 0:
         log("Hata: Video bilgisi alınamadı.")
         return False
-
-    out_w, out_h, fps = OUT_W, OUT_H, OUT_FPS
 
     tmpdir = tempfile.mkdtemp(prefix="tts_video_")
     try:
@@ -280,7 +286,7 @@ def run_pipeline(
             "-filter_complex", filter_intro,
             "-map", "[v]", "-map", "3:a",
             "-t", str(tts_duration_use),
-            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(fps),
+            "-c:v", "libx264", "-preset", x264_preset, "-crf", str(crf), "-pix_fmt", "yuv420p", "-r", str(fps),
             "-c:a", "aac", "-b:a", "256k", "-ar", "44100", "-ac", "2",
             "-shortest", intro_mp4,
         ]
@@ -299,6 +305,7 @@ def run_pipeline(
                 "-filter_complex", filter_main,
                 "-map", "[v]", "-map", "0:a",
                 "-t", str(main_duration),
+                "-c:v", "libx264", "-preset", x264_preset, "-crf", str(crf), "-pix_fmt", "yuv420p", "-r", str(fps),
                 "-c:a", "aac", "-b:a", "256k", "-ar", "44100", "-ac", "2", main_mp4,
             ]
         else:
@@ -309,6 +316,7 @@ def run_pipeline(
                 "-i", header_png,
                 "-filter_complex", filter_main,
                 "-map", "[v]", "-map", "[a]", "-t", str(main_duration),
+                "-c:v", "libx264", "-preset", x264_preset, "-crf", str(crf), "-pix_fmt", "yuv420p", "-r", str(fps),
                 "-c:a", "aac", "-b:a", "256k", main_mp4,
             ]
         if _run(cmd_main, log_cb=log, timeout=600) != 0:

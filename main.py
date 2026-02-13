@@ -17,11 +17,11 @@ def get_app_dir():
 class TTSApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Edge TTS - Ahmet Sesli Metin Okuma")
+        self.root.title("TTS - Metin Okuma")
         self.root.geometry("800x650")
         self.root.resizable(True, True)
         
-        self.voice = "tr-TR-AhmetNeural"
+        self.voice = "tr-TR-EmelNeural"
         self.save_folder = os.path.expanduser("~\\Documents")
         
         self.setup_ui()
@@ -36,7 +36,7 @@ class TTSApp:
         main_frame.columnconfigure(1, weight=1)
         main_frame.rowconfigure(3, weight=1)
         
-        title_label = ttk.Label(main_frame, text="Edge TTS - Ahmet Sesli Metin Okuma", 
+        title_label = ttk.Label(main_frame, text="TTS - Metin Okuma", 
                                font=("Arial", 16, "bold"))
         title_label.grid(row=0, column=0, columnspan=2, pady=(0, 15))
         
@@ -120,14 +120,10 @@ class TTSApp:
                 loop.close()
                 turkish_voices = [v for v in voices if v["Locale"].startswith("tr-TR")]
                 voice_names = [f"{v['ShortName']} ({v['Gender']})" for v in turkish_voices]
-                ahmet_voice = None
-                for v in turkish_voices:
-                    if "Ahmet" in v.get("ShortName", ""):
-                        ahmet_voice = v["ShortName"]
-                        break
-                if ahmet_voice:
-                    self.voice = ahmet_voice
-                    self.voice_var.set(ahmet_voice)
+                if turkish_voices:
+                    first_voice = turkish_voices[0]["ShortName"]
+                    self.voice = first_voice
+                    self.root.after(0, lambda: self.voice_var.set(first_voice))
                 self.root.after(0, lambda: self.voice_combo.config(values=voice_names))
                 self.root.after(0, lambda: self.update_status("Sesler yüklendi"))
             except Exception as e:

@@ -1,1 +1,1 @@
-# Video Factory package
+# AutoShorts package

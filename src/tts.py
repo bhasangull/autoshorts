@@ -49,7 +49,7 @@ async def generate_tts_async(text: str, voice: str, output_path: str) -> None:
 def generate_tts(text: str, voice: str, output_path: str) -> float:
     """
     TTS üretir, dosyaya yazar, süreyi (saniye) döndürür.
-    voice örn: tr-TR-AhmetNeural
+    voice örn: tr-TR-EmelNeural
     """
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

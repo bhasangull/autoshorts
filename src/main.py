@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Video Factory: entry noktası. GUI (varsayılan) veya CLI."""
+"""AutoShorts: entry noktası. GUI (varsayılan) veya CLI."""
 import os
 import sys
 import argparse
 
 
 def _cli():
-    parser = argparse.ArgumentParser(description="Video Factory - Repost overlay + TTS")
+    parser = argparse.ArgumentParser(description="AutoShorts - Repost overlay + TTS")
     parser.add_argument("--video", required=True, help="Video dosyası (mp4/mov)")
     parser.add_argument("--logo", default="", help="Logo PNG")
     parser.add_argument("--channel_name", default="", help="Kanal adı")
@@ -14,7 +14,7 @@ def _cli():
     parser.add_argument("--comment_image", required=True, help="Yorum görseli (png/jpg)")
     parser.add_argument("--comment_text", required=True, help="Yorum metni (TTS okunacak)")
     parser.add_argument("--out", required=True, help="Çıktı MP4 yolu (1080x1920, 30fps)")
-    parser.add_argument("--voice", default="tr-TR-AhmetNeural", help="TTS sesi")
+    parser.add_argument("--voice", default="tr-TR-EmelNeural", help="TTS sesi (tr-TR-...)")
     args = parser.parse_args()
 
     from src.tts import generate_tts
