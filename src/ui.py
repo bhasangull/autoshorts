@@ -23,10 +23,15 @@ def get_app_dir():
 
 
 CHANNELS_FILE = "channels.json"
+SETTINGS_FILE = "settings.json"
 
 
 def _channels_path():
     return os.path.join(get_app_dir(), CHANNELS_FILE)
+
+
+def _settings_path():
+    return os.path.join(get_app_dir(), SETTINGS_FILE)
 
 
 def load_channels():
@@ -49,6 +54,26 @@ def save_channels(channels):
         pass
 
 
+def load_settings():
+    path = _settings_path()
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_settings(settings: dict):
+    path = _settings_path()
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(settings, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
 class VideoFactoryUI:
     def __init__(self, root):
         self.root = root
@@ -59,6 +84,13 @@ class VideoFactoryUI:
         self.default_out = os.path.join(self.app_dir, "output")
         self._abort = False
         self._channels = load_channels()
+        self._settings = load_settings()
+        # Otomatik seçim ayarları
+        default_video = os.path.join(os.path.expanduser("~"), "Downloads")
+        default_image = os.path.join(os.path.expanduser("~"), "Pictures", "Screenshots")
+        self.auto_enabled = bool(self._settings.get("auto_pick_enabled", False))
+        self.video_folder = self._settings.get("video_folder", default_video)
+        self.image_folder = self._settings.get("image_folder", default_image)
         self.setup_ui()
         self._refresh_channel_list()
 
@@ -73,7 +105,7 @@ class VideoFactoryUI:
         ttk.Label(main, text="Video Factory", font=("Arial", 14, "bold")).grid(row=row, column=0, columnspan=2, pady=(0, 10))
         row += 1
 
-        # Video
+        # Video (boş bırakılırsa otomatik klasörden bulunabilir)
         ttk.Label(main, text="Video (mp4/mov):").grid(row=row, column=0, sticky="w", padx=(0, 8))
         self.video_var = tk.StringVar()
         f = ttk.Frame(main)
@@ -81,6 +113,38 @@ class VideoFactoryUI:
         f.columnconfigure(0, weight=1)
         ttk.Entry(f, textvariable=self.video_var, width=50).grid(row=0, column=0, sticky="ew", padx=(0, 5))
         ttk.Button(f, text="Seç", command=lambda: self._file(self.video_var, "Video", [("Video", "*.mp4 *.mov")]), width=8).grid(row=0, column=1)
+        row += 1
+
+        # Otomatik seçim (son video + son ekran görüntüsü)
+        self.auto_var = tk.BooleanVar(value=self.auto_enabled)
+        chk = ttk.Checkbutton(main, text="Otomatik video/görsel seç (son indirilen video + son ekran görüntüsü)", variable=self.auto_var, command=self._toggle_auto_pick)
+        chk.grid(row=row, column=0, columnspan=2, sticky="w")
+        row += 1
+
+        # Otomatik klasör ayarları (sadece özellik açıkken görünür)
+        self.auto_frame = ttk.Frame(main)
+        self.auto_frame.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(4, 4))
+        self.auto_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(self.auto_frame, text="Video klasörü:").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self.video_folder_var = tk.StringVar(value=self.video_folder)
+        f_v = ttk.Frame(self.auto_frame)
+        f_v.grid(row=0, column=1, sticky="ew")
+        f_v.columnconfigure(0, weight=1)
+        ttk.Entry(f_v, textvariable=self.video_folder_var, width=50).grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        ttk.Button(f_v, text="Seç", command=self._choose_video_folder, width=8).grid(row=0, column=1)
+
+        ttk.Label(self.auto_frame, text="Görsel klasörü:").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=(4, 0))
+        self.image_folder_var = tk.StringVar(value=self.image_folder)
+        f_i = ttk.Frame(self.auto_frame)
+        f_i.grid(row=1, column=1, sticky="ew")
+        f_i.columnconfigure(0, weight=1)
+        ttk.Entry(f_i, textvariable=self.image_folder_var, width=50).grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        ttk.Button(f_i, text="Seç", command=self._choose_image_folder, width=8).grid(row=0, column=1)
+
+        if not self.auto_enabled:
+            self.auto_frame.grid_remove()
+
         row += 1
 
         # Kanal seçimi
@@ -183,7 +247,6 @@ class VideoFactoryUI:
         if sel in names:
             self._apply_channel(names.index(sel))
 
-    def _new_channel_dialog(self):
         d = tk.Toplevel(self.root)
         d.title("Yeni kanal")
         d.geometry("480x200")
@@ -221,8 +284,75 @@ class VideoFactoryUI:
             d.destroy()
         btn_f = ttk.Frame(f)
         btn_f.grid(row=3, column=0, columnspan=2, pady=16)
+    def _new_channel_dialog(self):
+
         ttk.Button(btn_f, text="Kaydet", command=save, width=10).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_f, text="İptal", command=d.destroy, width=10).pack(side=tk.LEFT)
+
+    def _toggle_auto_pick(self):
+        self.auto_enabled = self.auto_var.get()
+        self._settings["auto_pick_enabled"] = self.auto_enabled
+        save_settings(self._settings)
+        if self.auto_enabled:
+            self.auto_frame.grid()
+        else:
+            self.auto_frame.grid_remove()
+
+    def _choose_video_folder(self):
+        path = filedialog.askdirectory(title="Video klasörünü seç (indirilen videolar)")
+        if path:
+            self.video_folder = path
+            self.video_folder_var.set(path)
+            self._settings["video_folder"] = path
+            save_settings(self._settings)
+
+    def _choose_image_folder(self):
+        path = filedialog.askdirectory(title="Görsel klasörünü seç (ekran görüntüleri)")
+        if path:
+            self.image_folder = path
+            self.image_folder_var.set(path)
+            self._settings["image_folder"] = path
+            save_settings(self._settings)
+
+    def _auto_pick_media(self):
+        """
+        Ayrı klasörlerden:
+        - Son indirilen video (mp4/mov)
+        - Son alınan ekran görüntüsü (png/jpg/jpeg)
+        """
+        if not self.auto_enabled:
+            return
+
+        def latest_with_ext(folder, exts):
+            if not folder or not os.path.isdir(folder):
+                return None
+            latest_path = None
+            latest_time = -1
+            try:
+                for entry in os.scandir(folder):
+                    if not entry.is_file():
+                        continue
+                    lower = entry.name.lower()
+                    if any(lower.endswith(e) for e in exts):
+                        t = entry.stat().st_mtime
+                        if t > latest_time:
+                            latest_time = t
+                            latest_path = entry.path
+            except Exception:
+                return None
+            return latest_path
+
+        # Video
+        if not self.video_var.get().strip() or not os.path.isfile(self.video_var.get().strip()):
+            vid = latest_with_ext(self.video_folder_var.get().strip(), [".mp4", ".mov"])
+            if vid:
+                self.video_var.set(vid)
+
+        # Yorum görseli
+        if not self.comment_img_var.get().strip() or not os.path.isfile(self.comment_img_var.get().strip()):
+            img = latest_with_ext(self.image_folder_var.get().strip(), [".png", ".jpg", ".jpeg"])
+            if img:
+                self.comment_img_var.set(img)
 
     def _file(self, var: tk.StringVar, title: str, types: list):
         path = filedialog.askopenfilename(title=title, filetypes=types)
@@ -269,6 +399,12 @@ class VideoFactoryUI:
         comment_img = self.comment_img_var.get().strip()
         comment_txt = self.comment_text.get("1.0", tk.END).strip()
         out = self.out_var.get().strip()
+
+        # Eğer video / yorum görseli seçilmemişse medya klasöründen otomatik bul
+        if (not video or not os.path.isfile(video)) or (not comment_img or not os.path.isfile(comment_img)):
+            self._auto_pick_media()
+            video = self.video_var.get().strip()
+            comment_img = self.comment_img_var.get().strip()
 
         if not video or not os.path.isfile(video):
             messagebox.showwarning("Eksik", "Video dosyası seçin.")
