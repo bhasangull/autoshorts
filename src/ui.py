@@ -279,9 +279,26 @@ class VideoFactoryUI:
         if not comment_txt:
             messagebox.showwarning("Eksik", "Yorum metni (TTS) girin.")
             return
-        if not out:
-            messagebox.showwarning("Eksik", "Çıktı dosyası belirtin.")
-            return
+
+        # Çıktı dosya adını yorum metninden üret
+        base_dir = os.path.dirname(out) if out else self.default_out
+        if not base_dir:
+            base_dir = self.default_out
+        os.makedirs(base_dir, exist_ok=True)
+        # Dosya adı: yorum metni (boşluk + Türkçe karakter serbest), yasak karakterleri temizle
+        name_raw = comment_txt.strip()
+        if not name_raw:
+            name_raw = "video"
+        # Çok uzunsa biraz kısalt
+        if len(name_raw) > 80:
+            name_raw = name_raw[:80].rstrip()
+        invalid = '<>:"/\\|?*'
+        safe_name = "".join(("_" if ch in invalid else ch) for ch in name_raw)
+        safe_name = safe_name.strip().rstrip(".")
+        if not safe_name:
+            safe_name = "video"
+        out = os.path.join(base_dir, safe_name + ".mp4")
+        self.out_var.set(out)
 
         ffmpeg = get_ffmpeg()
         if ffmpeg == "ffmpeg":
