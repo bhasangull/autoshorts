@@ -226,6 +226,7 @@ class VideoFactoryUI:
         self.quality_resolution = self._settings.get("quality_resolution", "1080p")
         self.quality_fps = self._settings.get("quality_fps", "30")
         self.cookies_file = (self._settings.get("downloader") or {}).get("cookies_file", "")
+        self.comment_count = max(1, min(3, int(self._settings.get("comment_count", 1))))
         self.setup_ui()
         self._refresh_channel_list()
 
@@ -326,22 +327,41 @@ class VideoFactoryUI:
         self.channel_var = tk.StringVar()
         self.username_var = tk.StringVar()
 
-        # Yorum görseli
-        ttk.Label(main, text="Yorum görseli (png/jpg):").grid(row=row, column=0, sticky="w", padx=(0, 8))
-        self.comment_img_var = tk.StringVar()
-        f = ttk.Frame(main)
-        f.grid(row=row, column=1, sticky="ew")
-        f.columnconfigure(0, weight=1)
-        ttk.Entry(f, textvariable=self.comment_img_var, width=50).grid(row=0, column=0, sticky="ew", padx=(0, 5))
-        ttk.Button(f, text="Seç", command=lambda: self._file(self.comment_img_var, "Yorum görseli", [("Görsel", "*.png *.jpg *.jpeg")]), width=8).grid(row=0, column=1)
+        # Yorum sayısı (1, 2 veya 3)
+        ttk.Label(main, text="Yorum sayısı:").grid(row=row, column=0, sticky="w", padx=(0, 8))
+        self.comment_count_var = tk.StringVar(value=str(self.comment_count))
+        count_combo = ttk.Combobox(main, textvariable=self.comment_count_var, values=("1", "2", "3"), width=6, state="readonly")
+        count_combo.grid(row=row, column=1, sticky="w")
+        count_combo.bind("<<ComboboxSelected>>", self._on_comment_count_changed)
         row += 1
 
-        # Yorum metni (TTS)
-        ttk.Label(main, text="Yorum metni (TTS):").grid(row=row, column=0, sticky="nw", padx=(0, 8), pady=(4, 0))
-        self.comment_text_var = tk.StringVar()
-        self.comment_text = scrolledtext.ScrolledText(main, height=4, width=50, wrap=tk.WORD)
-        self.comment_text.grid(row=row, column=1, sticky="ew", pady=(4, 4))
-        row += 1
+        # Dinamik yorum blokları (Comment 1, Comment 2, Comment 3)
+        self.comment_blocks = []
+        for i in range(3):
+            block = {}
+            block_frame = ttk.LabelFrame(main, text="Yorum " + str(i + 1), padding="4")
+            block_frame.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(4, 4))
+            block_frame.columnconfigure(1, weight=1)
+            row += 1
+            ttk.Label(block_frame, text="Metin (TTS):").grid(row=0, column=0, sticky="nw", padx=(0, 8), pady=(2, 0))
+            txt = scrolledtext.ScrolledText(block_frame, height=3, width=50, wrap=tk.WORD)
+            txt.grid(row=0, column=1, sticky="ew", padx=(0, 0), pady=(2, 4))
+            block_frame.rowconfigure(0, weight=0)
+            row_inner = 1
+            ttk.Label(block_frame, text="Görsel (png/jpg):").grid(row=row_inner, column=0, sticky="w", padx=(0, 8), pady=(2, 0))
+            img_var = tk.StringVar()
+            f_img = ttk.Frame(block_frame)
+            f_img.grid(row=row_inner, column=1, sticky="ew")
+            f_img.columnconfigure(0, weight=1)
+            ttk.Entry(f_img, textvariable=img_var, width=45).grid(row=0, column=0, sticky="ew", padx=(0, 5))
+            ttk.Button(f_img, text="Seç", command=lambda v=img_var, idx=i: self._file(v, "Yorum görseli " + str(idx + 1), [("Görsel", "*.png *.jpg *.jpeg")]), width=8).grid(row=0, column=1)
+            block["frame"] = block_frame
+            block["text"] = txt
+            block["img_var"] = img_var
+            self.comment_blocks.append(block)
+            row += 1
+
+        self._show_comment_blocks()
 
         # TTS ses
         ttk.Label(main, text="TTS sesi:").grid(row=row, column=0, sticky="w", padx=(0, 8))
@@ -522,6 +542,27 @@ class VideoFactoryUI:
         else:
             self.auto_image_frame.grid_remove()
 
+    def _on_comment_count_changed(self, event=None):
+        try:
+            n = int(self.comment_count_var.get())
+            if 1 <= n <= 3:
+                self.comment_count = n
+                self._settings["comment_count"] = self.comment_count
+                save_settings(self._settings)
+                self._show_comment_blocks()
+        except (ValueError, TypeError):
+            pass
+
+    def _show_comment_blocks(self):
+        n = getattr(self, "comment_count", 1)
+        if not hasattr(self, "comment_blocks"):
+            return
+        for i, block in enumerate(self.comment_blocks):
+            if i < n:
+                block["frame"].grid()
+            else:
+                block["frame"].grid_remove()
+
     def _save_quality_settings(self):
         self.quality_resolution = self.quality_resolution_var.get()
         self.quality_fps = self.quality_fps_var.get()
@@ -553,38 +594,60 @@ class VideoFactoryUI:
             save_settings(self._settings)
 
     def _auto_pick_media(self):
-        """Otomatik video (dosya modunda) ve/veya otomatik görsel seçimi."""
-        def latest_with_ext(folder, exts):
+        """Otomatik video (dosya modunda) ve otomatik görsel: N en son görsel (N = yorum sayısı)."""
+        def latest_videos(folder, limit=1):
             if not folder or not os.path.isdir(folder):
-                return None
-            latest_path = None
-            latest_time = -1
+                return []
+            exts = [".mp4", ".mov"]
+            candidates = []
             try:
                 for entry in os.scandir(folder):
                     if not entry.is_file():
                         continue
-                    lower = entry.name.lower()
-                    if any(lower.endswith(e) for e in exts):
-                        t = entry.stat().st_mtime
-                        if t > latest_time:
-                            latest_time = t
-                            latest_path = entry.path
+                    if entry.name.lower().endswith(tuple(exts)):
+                        candidates.append((entry.stat().st_mtime, entry.path))
+                candidates.sort(key=lambda x: -x[0])
+                return [p for (_, p) in candidates[:limit]]
             except Exception:
-                return None
-            return latest_path
+                return []
+
+        def latest_images_sorted(folder, limit):
+            """En son eklenen N görseli getirir (mtime en büyük = en yeni). Sıra: [en_yeni, ..., en_eski_olan_N]."""
+            if not folder or not os.path.isdir(folder):
+                return []
+            exts = [".png", ".jpg", ".jpeg"]
+            candidates = []
+            try:
+                for entry in os.scandir(folder):
+                    if not entry.is_file():
+                        continue
+                    if entry.name.lower().endswith(tuple(exts)):
+                        candidates.append((entry.stat().st_mtime, entry.path))
+                candidates.sort(key=lambda x: -x[0])
+                return [p for (_, p) in candidates[:limit]]
+            except Exception:
+                return []
 
         use_url = self.use_tiktok_url_var.get()
         if not use_url and self.auto_video_var.get():
             if not self.video_var.get().strip() or not os.path.isfile(self.video_var.get().strip()):
-                vid = latest_with_ext(self.video_folder_var.get().strip(), [".mp4", ".mov"])
-                if vid:
-                    self.video_var.set(vid)
+                vids = latest_videos(self.video_folder_var.get().strip(), 1)
+                if vids:
+                    self.video_var.set(vids[0])
 
-        if self.auto_image_var.get():
-            if not self.comment_img_var.get().strip() or not os.path.isfile(self.comment_img_var.get().strip()):
-                img = latest_with_ext(self.image_folder_var.get().strip(), [".png", ".jpg", ".jpeg"])
-                if img:
-                    self.comment_img_var.set(img)
+        n_comments = getattr(self, "comment_count", 1)
+        if self.auto_image_var.get() and hasattr(self, "comment_blocks"):
+            folder = self.image_folder_var.get().strip()
+            images = latest_images_sorted(folder, n_comments)
+            # Kullanıcı önce Yorum 1 metnini yazıp SS alır (en eski), son Yorum 3 (en yeni).
+            # images = [en_yeni, 2., 3.] -> Yorum 1 = en eski = images[n-1], Yorum 2 = images[n-2], Yorum 3 = images[0]
+            for i in range(n_comments):
+                if i < len(self.comment_blocks):
+                    var = self.comment_blocks[i]["img_var"]
+                    if not var.get().strip() or not os.path.isfile(var.get().strip()):
+                        idx_img = n_comments - 1 - i
+                        if 0 <= idx_img < len(images):
+                            var.set(images[idx_img])
 
     def _file(self, var: tk.StringVar, title: str, types: list):
         path = filedialog.askopenfilename(title=title, filetypes=types)
@@ -631,38 +694,66 @@ class VideoFactoryUI:
         video = self.video_var.get().strip()
         tiktok_url = self.tiktok_url_var.get().strip()
         logo = self.logo_var.get().strip()
-        comment_img = self.comment_img_var.get().strip()
-        comment_txt = self.comment_text.get("1.0", tk.END).strip()
         out = self.out_var.get().strip()
 
-        # Video kaynağı: (a) dosya seçiliyse onu kullan (b) URL modunda URL'den indir (c) otomatik dene (d) hata
-        if not use_url:
-            if (not video or not os.path.isfile(video)) or (not comment_img or not os.path.isfile(comment_img)):
-                self._auto_pick_media()
-                video = self.video_var.get().strip()
-            if not video or not os.path.isfile(video):
-                messagebox.showwarning("Eksik", "Video dosyası seçin veya TikTok URL kullanın.")
-                return
-        else:
-            if not tiktok_url:
-                messagebox.showwarning("Eksik", "TikTok URL girin.")
-                return
+        try:
+            n = max(1, min(3, int(self.comment_count_var.get())))
+        except (ValueError, TypeError):
+            n = 1
 
-        if not comment_img or not os.path.isfile(comment_img):
+        texts = []
+        images = []
+        for i in range(n):
+            if i >= len(self.comment_blocks):
+                break
+            block = self.comment_blocks[i]
+            t = block["text"].get("1.0", tk.END).strip()
+            img = block["img_var"].get().strip()
+            texts.append(t)
+            images.append(img)
+
+        if n != len(texts) or n != len(images):
+            messagebox.showwarning("Eksik", "Yorum alanları okunamadı.")
+            return
+
+        if not use_url and (not video or not os.path.isfile(video)):
             self._auto_pick_media()
-            comment_img = self.comment_img_var.get().strip()
-        if not comment_img or not os.path.isfile(comment_img):
-            messagebox.showwarning("Eksik", "Yorum görseli seçin.")
+            video = self.video_var.get().strip()
+        if use_url and not tiktok_url:
+            messagebox.showwarning("Eksik", "TikTok URL girin.")
             return
-        if not comment_txt:
-            messagebox.showwarning("Eksik", "Yorum metni (TTS) girin.")
+        if not use_url and (not video or not os.path.isfile(video)):
+            messagebox.showwarning("Eksik", "Video dosyası seçin veya TikTok URL kullanın.")
             return
+
+        if self.auto_image_var.get():
+            self._auto_pick_media()
+            for i in range(n):
+                images[i] = self.comment_blocks[i]["img_var"].get().strip()
+
+        for i in range(n):
+            if not texts[i]:
+                messagebox.showwarning("Eksik", "Yorum " + str(i + 1) + " için TTS metni girin.")
+                return
+            if not images[i] or not os.path.isfile(images[i]):
+                if self.auto_image_var.get():
+                    folder = self.image_folder_var.get().strip()
+                    exts = [".png", ".jpg", ".jpeg"]
+                    count = 0
+                    if folder and os.path.isdir(folder):
+                        for e in os.scandir(folder):
+                            if e.is_file() and e.name.lower().endswith(tuple(exts)):
+                                count += 1
+                    messagebox.showerror("Eksik", "Otomatik görsel: " + str(n) + " adet görsel gerekli, " + str(count) + " adet bulundu. Görsel klasörünü kontrol edin.")
+                else:
+                    messagebox.showwarning("Eksik", "Yorum " + str(i + 1) + " için görsel seçin.")
+                return
 
         base_dir = os.path.dirname(out) if out else self.default_out
         if not base_dir:
             base_dir = self.default_out
         os.makedirs(base_dir, exist_ok=True)
-        name_raw = comment_txt.strip() or "video"
+        name_raw = texts[0].strip() or "video"
         if len(name_raw) > 80:
             name_raw = name_raw[:80].rstrip()
         invalid = '<>:"/\\|?*'
@@ -702,16 +793,23 @@ class VideoFactoryUI:
                         return
                     self.root.after(0, lambda: self.log("İndirme tamamlandı."))
 
-                self.log("TTS üretiliyor...")
                 voice = self.voice_var.get()
                 if " (" in voice:
                     voice = voice.split(" (")[0]
-                tts_path = os.path.join(tmp_dir, "tts.mp3")
-                duration_sec = generate_tts(comment_txt, voice, tts_path)
-                if duration_sec <= 0:
-                    self.root.after(0, lambda: self.log("Hata: TTS süresi alınamadı."))
-                    return
-                self.root.after(0, lambda: self.log(f"TTS süresi: {duration_sec:.2f} sn"))
+
+                comment_segments = []
+                for i in range(n):
+                    self.root.after(0, lambda ii=i: self.log("TTS " + str(ii + 1) + " üretiliyor..."))
+                    tts_path = os.path.join(tmp_dir, "tts_" + str(i) + ".mp3")
+                    duration_sec = generate_tts(texts[i], voice, tts_path)
+                    if duration_sec <= 0:
+                        self.root.after(0, lambda: self.log("Hata: TTS süresi alınamadı (yorum " + str(i + 1) + ")."))
+                        return
+                    comment_segments.append({
+                        "comment_image_path": images[i],
+                        "tts_audio_path": tts_path,
+                        "tts_duration_sec": duration_sec,
+                    })
 
                 logo_path = logo if (logo and os.path.isfile(logo)) else ""
                 if not logo_path:
@@ -728,9 +826,7 @@ class VideoFactoryUI:
                     logo_path=logo_path,
                     channel_name=self.channel_var.get().strip(),
                     username=self.username_var.get().strip(),
-                    comment_image_path=comment_img,
-                    tts_audio_path=tts_path,
-                    tts_duration_sec=duration_sec,
+                    comment_segments=comment_segments,
                     output_path=out,
                     log_cb=lambda s: self.root.after(0, lambda m=s: self.log(m)),
                     quality_resolution=quality_resolution,

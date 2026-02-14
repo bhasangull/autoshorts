@@ -1,168 +1,55 @@
 # AutoShorts
 
-TikTok / kısa video + üst bar (logo, kanal) + yorum overlay + TTS senkronlu kısa video üreten masaüstü uygulaması.
-
-*(İsteğe bağlı: `main.py` ile sadece metni seslendirip MP3 üreten basit TTS aracı da projede bulunur.)*
+TikTok ve kısa videolar için üst bar (logo, kanal), yorum overlay ve TTS ile senkronlu kısa video üreten masaüstü uygulaması.
 
 ## Kurulum
 
-### 1. Python Kurulumu
+- Python 3.8+
+- Proje klasöründe: `pip install -r requirements.txt`
+- Çalıştırma: `python -m src.main`
+- EXE: `build.bat` veya `pyinstaller VideoFactory.spec` → `dist\AutoShorts.exe`
+- FFmpeg gerekli (PATH veya exe yanında `ffmpeg.exe`, `ffprobe.exe`). TikTok indirme için `yt-dlp` requirements ile yüklenir.
 
-Eğer Python yüklü değilse:
+## Ana özellikler
 
-1. [Python'un resmi web sitesinden](https://www.python.org/downloads/) Python 3.8 veya üzeri bir sürümü indirin
-2. İndirdiğiniz kurulum dosyasını çalıştırın
-3. **ÖNEMLİ:** Kurulum sırasında "Add Python to PATH" seçeneğini işaretleyin
-4. Kurulumu tamamlayın
+- **Başlat** tek tuşla: Video kaynağı (TikTok URL veya dosya) + yorum(lar) + TTS ile indirme ve render.
+- **Video kaynağı**: TikTok URL (yt-dlp) veya yerel dosya. TikTok URL ile otomatik video kapalı; dosya modunda otomatik video (son indirilen) ve otomatik görsel ayrı checkbox’lar.
+- **Yorum sayısı (1, 2 veya 3)**: Arayüzde “Yorum sayısı” ile 1, 2 veya 3 seçilir. Seçilen sayı kadar yorum alanı gösterilir.
+- **Dinamik yorum alanları**: Her blokta TTS metni (çok satırlı, zorunlu) ve görsel (png/jpg) + Seç butonu.
+- **Doğrulama**: Başlat’ta her görünen yorum için TTS metni dolu olmalı. Otomatik görsel kapalıysa her yorum için geçerli görsel gerekir.
+- **Otomatik görsel**: Açıksa, görsel klasöründen en son değiştirilme tarihine göre en yeni N görsel alınır. **Sıra:** Yorum 1 = klasörde en eski (ilk aldığınız SS), Yorum 2 = ikinci, Yorum 3 = en yeni (son aldığınız SS). Klasörde N’den az görsel varsa hata (kaç gerekli / kaç bulundu).
+- **Yorum yerleşimi**: Video süresi D saniye, N yorum için yerleşim eşit aralıklı: **Yorum 1** başta (t=0), **Yorum 2** D/(N+1), **Yorum 3** 2*D/(N+1) (N=3’te 0, D/4, D/2). Yorum klipleri bu zamanlara göre kesilip ana videoya eklenir; segment süreleri taşarsa clamp/overlap düzeltmesi uygulanır.
+- **Ayarlar**: Yorum sayısı, otomatik görsel, görsel klasörü `settings.json`’da saklanır.
+- **Çıktı**: Çözünürlük (720p / 1080p) ve FPS (30 / 60) ayrı seçilir. Ses AAC 256k.
+- **Cookies**: TikTok için opsiyonel cookies.txt (GUI veya `settings.json` → `downloader.cookies_file`). JSON cookie dosyası Netscape formatına otomatik dönüştürülür.
+- **Kanal profilleri**: Yeni kanal (logo, kanal adı, kullanıcı adı) `channels.json`’a yazılır.
 
-### 2. Projeyi İndirme
+## Kısa kullanım
 
-Projeyi bilgisayarınıza indirin veya klonlayın.
+1. Video: TikTok URL kullan veya dosya seç (gerekirse otomatik video/görsel aç).
+2. Yorum sayısı: 1, 2 veya 3 seç.
+3. Her “Yorum N” için TTS metnini yaz, görseli seç veya otomatik görsel ile klasörden al (ilk aldığın SS = Yorum 1, son aldığın = Yorum 3).
+4. Kanal seç (veya yeni kanal ekle), çıktı yolunu ayarla, Başlat’a bas.
 
-### 3. Bağımlılıkları Yükleme
-
-Proje klasörüne gidin ve terminal/komut istemcisinde şu komutu çalıştırın:
-
-```bash
-pip install -r requirements.txt
-```
-
-Eğer `pip` komutu çalışmazsa, şunu deneyin:
-
-```bash
-python -m pip install -r requirements.txt
-```
-
-veya
-
-```bash
-python3 -m pip install -r requirements.txt
-```
-
-### 4. Basit TTS aracı (isteğe bağlı)
-
-**Python ile:**
-```bash
-python main.py
-```
-
-**EXE olarak:** TTS aracı için ayrı bir build betiği kullanılabilir; ana uygulama `build.bat` ile `dist\AutoShorts.exe` olarak derlenir.
-
-Basit TTS aracı kullanımı:
-
-1. **Okunacak Metin** alanına metninizi yazın
-2. **Ses dosyası adı** kutusuna kaydedeceğiniz dosyanın adını yazın (örn: `bolum_01` → `bolum_01.mp3`)
-3. **Kayıt klasörü** satırında hedef klasörü yazın veya **Klasör Seç** ile seçin
-4. İsterseniz **Ses** menüsünden farklı bir Türkçe ses seçin
-5. **"▶ Oku"** ile dinleyin, **"💾 Dosyaya Kaydet"** ile seçtiğiniz klasöre ve isimle kaydedin
-6. **"⏹ Durdur"** ile seslendirmeyi durdurun
-
-## Gereksinimler
-
-- Python 3.8 veya üzeri
-- İnternet bağlantısı (TTS servisi için)
-- Windows, macOS veya Linux işletim sistemi
-
-## Sorun Giderme
-
-### "pip komutu bulunamadı" hatası
-
-Python'un PATH'e eklendiğinden emin olun. Kurulum sırasında "Add Python to PATH" seçeneğini işaretlemediyseniz, Python'u yeniden kurun veya PATH'i manuel olarak ekleyin.
-
-### "TTS modülü bulunamadı" hatası
-
-Bağımlılıkları tekrar yükleyin:
+## CLI (tek yorum)
 
 ```bash
-pip install -r requirements.txt
+python -m src.main --video video.mp4 --logo logo.png --channel_name "Kanal" --username "@kullanici" --comment_image yorum.png --comment_text "Okunacak yorum metni" --out cikti.mp4
 ```
 
-### Ses çalmıyor
+Çıktı varsayılan 1080p, 30 fps.
 
-- İnternet bağlantınızı kontrol edin
-- Windows Media Player veya varsayılan ses çalıcınızın çalıştığından emin olun
-- Ses seviyesinin açık olduğundan emin olun
+## Sorun giderme
 
-## Notlar
+- **TikTok indirilemiyor**: cookies.txt kullanın (Netscape veya JSON). Chrome açıkken cookies kilitli olabileceği için cookies.txt önerilir.
+- **FFmpeg bulunamadı**: PATH’e ekleyin veya `ffmpeg.exe` / `ffprobe.exe`’yi uygulama/EXE klasörüne koyun.
+- **Otomatik görsel: “N adet gerekli, M adet bulundu”**: Görsel klasöründe yeterli sayıda png/jpg/jpeg yok; N görsel ekleyin veya yorum sayısını düşürün.
+- **Yeni kanal kaydedilmiyor**: Uygulama/EXE ile aynı dizinde `channels.json` yazılabilir olmalı.
 
-- İlk çalıştırmada ses listesi yüklenirken kısa bir gecikme olabilir
-- Uygulama çalışırken geçici bir `temp_audio.mp3` dosyası oluşturulur (ses çalma için)
-- Kaydedilen dosyalar seçtiğiniz konuma kaydedilir
+## İsteğe bağlı: Basit TTS aracı
 
----
-
-# AutoShorts (Ana uygulama)
-
-Tek arayüzle video + üst bar (logo, kanal adı, kullanıcı adı) + yorum overlay + TTS senkronlu kısa video üretir. **Başlat** tek tuşla TikTok URL’den indirip render yapılabilir.
-
-## Hızlı çalıştırma
-
-```bash
-pip install -r requirements.txt
-python -m src.main
-```
-
-**EXE:** `pyinstaller VideoFactory.spec` veya ilgili build betiği → `dist\AutoShorts.exe`.  
-**Gereksinimler:** FFmpeg (PATH’te veya EXE ile aynı klasörde `ffmpeg.exe`, `ffprobe.exe`). TikTok indirme için `yt-dlp` (requirements.txt ile yüklenir).
-
-## Özellikler (AutoShorts)
-
-- 🎬 **Intro + ana video**:
-  - Intro: videonun ilk karesi + header bar + yorum görseli, **TTS süresi boyunca** sabit
-  - Sonra video **0. saniyeden** başlayarak header bar ile birlikte oynar
-- 🧊 **Üst bar (header)**:
-  - Sol: logo (PNG)
-  - Sağ: kanal adı (büyük), altında kullanıcı adı (küçük)
-  - Yarı saydam koyu arka plan, çözünürlüğe göre otomatik ölçek
-- 💬 **Yorum overlay**:
-  - Ekranın ortasına yakın, üst bardan sonra kalan alanda
-  - Ekran genişliğinin ~%85’ini geçmeyecek şekilde otomatik ölçek
-- 🔊 **Ses**:
-  - TTS: Türkçe ses (varsayılan listeden ilk ses), sonundaki gereksiz sessizlik otomatik kırpılır
-  - Intro süresince sadece TTS, ardından **videonun orijinal sesi** devam eder
-  - Sesler AAC 256 kbps olarak encode edilir
-- 📐 **Çıktı**: **Çözünürlük** (720p veya 1080p) ve **FPS** (30 veya 60) ayrı seçilir; seçimler `settings.json`’da kalıcıdır.
-- **Video kaynağı**:
-  - **TikTok URL**: “TikTok URL kullan” işaretlenince sadece URL kutusu görünür; **Başlat**’ta yt-dlp ile indirilir.
-  - **Dosya**: URL kapalıyken video yolu + “Seç” ile dosya seçimi.
-  - **Otomatik video** (ayrı kutu): Son indirilen video için video klasörü; sadece TikTok URL kapalıyken kullanılır.
-  - **Otomatik görsel** (ayrı kutu): Son ekran görüntüsü için görsel klasörü.
-- **Cookies (cookies.txt)**: TikTok indirme için opsiyonel. GUI’den dosya seçilir veya `settings.json` → `downloader.cookies_file`. JSON formatındaki cookie dosyaları otomatik olarak Netscape formatına dönüştürülür. Chrome açıkken tarayıcı cookie’si kilitli olabileceği için cookies.txt kullanmanız önerilir.
-- 🧾 **Kanal profilleri**: Yeni kanal ekleme (logo + kanal adı + kullanıcı adı); `channels.json`’a yazılır, uygulama kapansa da yüklenir.
-- 📝 **Otomatik dosya adı**: Çıktı video dosya adı = yorum metni (boşluk ve Türkçe karakterler korunur, yasak karakterler temizlenir).
-
-## Örnek CLI
-
-```bash
-python -m src.main \
-  --video video.mp4 \
-  --logo logo.png \
-  --channel_name "Kanal" \
-  --username "@kullanici" \
-  --comment_image yorum.png \
-  --comment_text "Okunacak yorum metni" \
-  --out cikti.mp4
-```
-
-## Girdiler
-
-- **GUI**:
-  - **Video kaynağı**: TikTok URL veya video dosyası (mp4/mov). Otomatik video/görsel için ayrı checkbox’lar ve klasör seçimi.
-  - Logo (png), kanal adı, kullanıcı adı (kanal profili üzerinden; yeni kanal eklenebilir).
-  - Yorum görseli (png/jpg), yorum metni (TTS ile okunur).
-  - Çıktı dosyası (varsayılan `output`); dosya adı yorum metninden otomatik üretilir.
-  - **Çözünürlük**: 720p veya 1080p. **FPS**: 30 veya 60.
-  - **Cookies (cookies.txt)**: Opsiyonel; TikTok indirme için. JSON formatı otomatik Netscape’e dönüştürülür.
-- **CLI**:
-  - `--video`, `--logo`, `--channel_name`, `--username`, `--comment_image`, `--comment_text`, `--out`
-  - Çıktı: Seçilen çözünürlük (720p: 720×1280, 1080p: 1080×1920) ve FPS (30 veya 60), mp4
-
-## AutoShorts – Sorun giderme
-
-- **TikTok indirilemiyor**: cookies.txt kullanın (Netscape veya JSON formatı; JSON otomatik dönüştürülür). Chrome açıksa tarayıcı cookie’si kilitli olabileceği için cookies.txt tercih edin.
-- **FFmpeg bulunamadı**: FFmpeg’i indirip PATH’e ekleyin veya `ffmpeg.exe` / `ffprobe.exe` dosyalarını uygulama/EXE klasörüne koyun.
-- **Yeni kanal kaydedilmiyor**: `channels.json` dosyasının yazılabilir olduğundan emin olun (uygulama/EXE ile aynı dizinde oluşturulur).
+Sadece metni sese çevirip MP3 kaydetmek için: `python main.py`. Türkçe ses seçilir, metin yazılıp kaydedilir.
 
 ## Lisans
 
-Bu proje açık kaynaklıdır ve serbestçe kullanılabilir.
+Proje açık kaynaklıdır, serbestçe kullanılabilir.

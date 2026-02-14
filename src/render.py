@@ -205,20 +205,23 @@ def run_pipeline(
     logo_path: str,
     channel_name: str,
     username: str,
-    comment_image_path: str,
-    tts_audio_path: str,
-    tts_duration_sec: float,
+    comment_segments: list,
     output_path: str,
     log_cb: Optional[Callable[[str], None]] = None,
     quality_resolution: str = "1080p",
     quality_fps: str = "30",
 ) -> bool:
     """
-    Intro + main. quality_resolution (720p/1080p) ve quality_fps (30/60) ayrı seçilir (AAC 256k korunur).
+    Intro (N yorum segmenti: her biri first frame + header + yorum görseli + TTS) + main.
+    comment_segments: [{"comment_image_path": str, "tts_audio_path": str, "tts_duration_sec": float}, ...]
     """
     def log(s):
         if log_cb:
             log_cb(s)
+
+    if not comment_segments:
+        log("Hata: En az bir yorum segmenti gerekli.")
+        return False
 
     res = RESOLUTION_PARAMS.get(quality_resolution, RESOLUTION_PARAMS["1080p"])
     out_w, out_h, crf, x264_preset = res
@@ -235,87 +238,84 @@ def run_pipeline(
     try:
         first_frame = os.path.join(tmpdir, "first.png")
         header_png = os.path.join(tmpdir, "header.png")
-        intro_mp4 = os.path.join(tmpdir, "intro.mp4")
         main_mp4 = os.path.join(tmpdir, "main.mp4")
         list_txt = os.path.join(tmpdir, "list.txt")
-        tts_trimmed = os.path.join(tmpdir, "tts_trimmed.mp3")
 
-        # 0) TTS sonundaki sessizliği kırp (yüksek kalite: 256k MP3)
-        _run([
-            ffmpeg, "-y", "-i", tts_audio_path,
-            "-af", "silenceremove=stop_periods=1:stop_duration=0.15:stop_threshold=-40dB",
-            "-c:a", "libmp3lame", "-b:a", "256k", tts_trimmed,
-        ], log_cb=log, timeout=30)
-        tts_duration_use = get_audio_duration_seconds(tts_trimmed) if os.path.isfile(tts_trimmed) else tts_duration_sec
-        if tts_duration_use <= 0:
-            tts_duration_use = tts_duration_sec
-        tts_audio_use = tts_trimmed if os.path.isfile(tts_trimmed) else tts_audio_path
-        if tts_audio_use != tts_trimmed:
-            tts_duration_use = tts_duration_sec
-
-        # 1) İlk kare (tek dosya için -update 1)
         _run([ffmpeg, "-y", "-i", video_path, "-vframes", "1", "-f", "image2", "-update", "1", first_frame], log_cb=log, timeout=30)
         if not os.path.isfile(first_frame):
             log("Hata: İlk kare çıkarılamadı.")
             return False
 
-        # 2) Header PNG
         create_header_png(out_w, out_h, logo_path, channel_name, username, header_png)
         if not os.path.isfile(header_png):
             log("Hata: Header oluşturulamadı.")
             return False
 
-        # Yorum görseli max genişlik %85, Y ~ %55 (merkez)
         comment_max_w = int(out_w * 0.85)
         comment_x = "(main_w-overlay_w)/2"
         comment_y = "main_h*0.55-overlay_h/2"
 
-        # 3) Intro: loop first frame + header + comment, süre = kırpılmış TTS süresi, ses = kırpılmış TTS
+        # TTS sürelerini hesapla (hepsi için)
+        segment_durations = []
+        for idx, seg in enumerate(comment_segments):
+            tts_trimmed = os.path.join(tmpdir, "tts_trimmed_%d.mp3" % idx)
+            _run([
+                ffmpeg, "-y", "-i", seg["tts_audio_path"],
+                "-af", "silenceremove=stop_periods=1:stop_duration=0.15:stop_threshold=-40dB",
+                "-c:a", "libmp3lame", "-b:a", "256k", tts_trimmed,
+            ], log_cb=log, timeout=30)
+            dur = get_audio_duration_seconds(tts_trimmed) if os.path.isfile(tts_trimmed) else seg["tts_duration_sec"]
+            if dur <= 0:
+                dur = seg["tts_duration_sec"]
+            segment_durations.append((tts_trimmed if os.path.isfile(tts_trimmed) else seg["tts_audio_path"], dur))
+
+        D = max(0.1, float(info.get("duration", 0)))
+        main_duration = D
+        N = len(comment_segments)
+
+        # Yerleşim: videoyu N+1 eşit parçaya bölen noktalar. Yorumlar bu noktalarda "duraklatma" (araya ekleme).
+        # t_i = i * D/(N+1) → yorum 1 başta, yorum 2 t1'de, yorum 3 t2'de. Video bu noktalarda bölünüp araya yorum klipleri eklenir; toplam süre D + (yorum süreleri) olur.
+        interval = D / (N + 1) if N else D
+        t_list = [i * interval for i in range(N)]
+        for i in range(N):
+            if t_list[i] >= D - 0.01:
+                t_list[i] = max(0.0, D - 0.01)
+
+        # 1) İlk yorum videonun en başında (intro)
+        seg0 = comment_segments[0]
+        tts_use_0, t1 = segment_durations[0]
+        intro_0 = os.path.join(tmpdir, "intro_0.mp4")
         filter_intro = (
             f"[0:v]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2,setsar=1[base];"
             f"[base][1:v]overlay=0:0[with_header];"
             f"[2:v]scale={comment_max_w}:-1[comment];"
             f"[with_header][comment]overlay={comment_x}:{comment_y}[v]"
         )
-        cmd_intro = [
-            ffmpeg, "-y",
-            "-loop", "1", "-i", first_frame,
-            "-i", header_png,
-            "-i", comment_image_path,
-            "-i", tts_audio_use,
-            "-filter_complex", filter_intro,
-            "-map", "[v]", "-map", "3:a",
-            "-t", str(tts_duration_use),
+        cmd_intro0 = [
+            ffmpeg, "-y", "-loop", "1", "-i", first_frame, "-i", header_png, "-i", seg0["comment_image_path"], "-i", tts_use_0,
+            "-filter_complex", filter_intro, "-map", "[v]", "-map", "3:a", "-t", str(t1),
             "-c:v", "libx264", "-preset", x264_preset, "-crf", str(crf), "-pix_fmt", "yuv420p", "-r", str(fps),
-            "-c:a", "aac", "-b:a", "256k", "-ar", "44100", "-ac", "2",
-            "-shortest", intro_mp4,
+            "-c:a", "aac", "-b:a", "256k", "-ar", "44100", "-ac", "2", "-shortest", intro_0,
         ]
-        if _run(cmd_intro, log_cb=log, timeout=300) != 0:
-            log("Hata: Intro segment oluşturulamadı.")
+        if _run(cmd_intro0, log_cb=log, timeout=300) != 0:
+            log("Hata: Intro (yorum 1) oluşturulamadı.")
             return False
 
-        # 4) Main: video baştan (0. saniye) sonuna kadar, 1080x1920 + header overlay. Ses = videonun orijinal sesi.
-        main_duration = max(0.1, info.get("duration", 0))
+        # 2) Ana video tam (header ile)
         filter_main = f"[0:v]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2,setsar=1[scaled];[scaled][1:v]overlay=0:0[v]"
         has_audio = info.get("has_audio", True)
         if has_audio:
             cmd_main = [
-                ffmpeg, "-y", "-i", video_path,
-                "-i", header_png,
-                "-filter_complex", filter_main,
-                "-map", "[v]", "-map", "0:a",
-                "-t", str(main_duration),
+                ffmpeg, "-y", "-i", video_path, "-i", header_png, "-filter_complex", filter_main,
+                "-map", "[v]", "-map", "0:a", "-t", str(main_duration),
                 "-c:v", "libx264", "-preset", x264_preset, "-crf", str(crf), "-pix_fmt", "yuv420p", "-r", str(fps),
                 "-c:a", "aac", "-b:a", "256k", "-ar", "44100", "-ac", "2", main_mp4,
             ]
         else:
             filter_main = f"[0:v]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2,setsar=1[scaled];[scaled][2:v]overlay=0:0[v];[1:a]atrim=0:" + str(main_duration) + ",asetpts=PTS-STARTPTS[a]"
             cmd_main = [
-                ffmpeg, "-y", "-i", video_path,
-                "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
-                "-i", header_png,
-                "-filter_complex", filter_main,
-                "-map", "[v]", "-map", "[a]", "-t", str(main_duration),
+                ffmpeg, "-y", "-i", video_path, "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-i", header_png,
+                "-filter_complex", filter_main, "-map", "[v]", "-map", "[a]", "-t", str(main_duration),
                 "-c:v", "libx264", "-preset", x264_preset, "-crf", str(crf), "-pix_fmt", "yuv420p", "-r", str(fps),
                 "-c:a", "aac", "-b:a", "256k", main_mp4,
             ]
@@ -323,18 +323,71 @@ def run_pipeline(
             log("Hata: Main segment oluşturulamadı.")
             return False
 
-        # 5) Concat intro + main (Windows için path'te \\ -> /)
+        concat_parts = [intro_0]
+
+        def cut_main(ss, t, out_path):
+            """Main videodan ss saniyeden itibaren t saniye kes; yeniden encode ile güvenilir oynatma."""
+            cmd = [
+                ffmpeg, "-y", "-i", main_mp4,
+                "-ss", str(ss), "-t", str(t),
+                "-c:v", "libx264", "-preset", x264_preset, "-crf", str(crf), "-pix_fmt", "yuv420p", "-r", str(fps),
+                "-c:a", "aac", "-b:a", "256k", "-ar", "44100", "-ac", "2",
+                out_path,
+            ]
+            return _run(cmd, log_cb=log, timeout=120) == 0 and os.path.isfile(out_path)
+
+        if N == 1:
+            concat_parts.append(main_mp4)
+        else:
+            # Yorum 2..N klipleri: yerleşim zamanları t_list[1], t_list[2], ...
+            for idx in range(1, N):
+                seg = comment_segments[idx]
+                tts_use, t_dur = segment_durations[idx]
+                seek_time = min(t_list[idx], D - 0.5) if D > 0.5 else 0
+                frame_at = os.path.join(tmpdir, "frame_%d.png" % idx)
+                _run([ffmpeg, "-y", "-ss", str(seek_time), "-i", video_path, "-vframes", "1", "-f", "image2", "-update", "1", frame_at], log_cb=log, timeout=30)
+                if not os.path.isfile(frame_at):
+                    frame_at = first_frame
+                seg_mp4 = os.path.join(tmpdir, "seg_%d.mp4" % idx)
+                filter_seg = (
+                    f"[0:v]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2,setsar=1[base];"
+                    f"[base][1:v]overlay=0:0[with_header];"
+                    f"[2:v]scale={comment_max_w}:-1[comment];"
+                    f"[with_header][comment]overlay={comment_x}:{comment_y}[v]"
+                )
+                cmd_seg = [
+                    ffmpeg, "-y", "-loop", "1", "-i", frame_at, "-i", header_png, "-i", seg["comment_image_path"], "-i", tts_use,
+                    "-filter_complex", filter_seg, "-map", "[v]", "-map", "3:a", "-t", str(t_dur),
+                    "-c:v", "libx264", "-preset", x264_preset, "-crf", str(crf), "-pix_fmt", "yuv420p", "-r", str(fps),
+                    "-c:a", "aac", "-b:a", "256k", "-ar", "44100", "-ac", "2", "-shortest", seg_mp4,
+                ]
+                if _run(cmd_seg, log_cb=log, timeout=300) != 0:
+                    log("Hata: Yorum %d segmenti oluşturulamadı." % (idx + 1))
+                    return False
+
+            # Concat: comment_1 + main[0:t1] + comment_2 + main[t1:t2] + ... + comment_N + main[tN-1:D]
+            # Yorumlar araya eklenir; video yorum sırasında duraklar, toplam süre D + (tüm yorum süreleri) olur.
+            for i in range(N):
+                if i > 0:
+                    concat_parts.append(os.path.join(tmpdir, "seg_%d.mp4" % i))
+                start = t_list[i]
+                end = t_list[i + 1] if i + 1 < N else D
+                if end > start + 0.05:
+                    piece = os.path.join(tmpdir, "main_piece_%d.mp4" % i)
+                    if cut_main(start, end - start, piece):
+                        concat_parts.append(piece)
+
         def path_for_concat(p):
             return p.replace("\\", "/").replace("'", "'\\''")
         with open(list_txt, "w", encoding="utf-8") as f:
-            f.write("file '" + path_for_concat(intro_mp4) + "'\n")
-            f.write("file '" + path_for_concat(main_mp4) + "'\n")
+            for part in concat_parts:
+                if os.path.isfile(part):
+                    f.write("file '" + path_for_concat(part) + "'\n")
 
         out_dir = os.path.dirname(output_path)
         if out_dir and not os.path.isdir(out_dir):
             os.makedirs(out_dir, exist_ok=True)
 
-        # Her iki segment aynı formatta (1080x1920, 30fps, AAC 44100 stereo); copy ile birleştir
         cmd_concat = [
             ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", list_txt,
             "-c", "copy", output_path,

@@ -43,14 +43,17 @@ def _cli():
             from PIL import Image
             logo_path = os.path.join(tmp, "empty.png")
             Image.new("RGBA", (1, 1), (0, 0, 0, 0)).save(logo_path)
+        comment_segments = [{
+            "comment_image_path": args.comment_image,
+            "tts_audio_path": tts_path,
+            "tts_duration_sec": duration_sec,
+        }]
         ok = run_pipeline(
             video_path=args.video,
             logo_path=logo_path,
             channel_name=args.channel_name or "",
             username=args.username or "",
-            comment_image_path=args.comment_image,
-            tts_audio_path=tts_path,
-            tts_duration_sec=duration_sec,
+            comment_segments=comment_segments,
             output_path=args.out,
             log_cb=log,
         )
