@@ -345,7 +345,7 @@ class VideoFactoryUI:
 
         # TTS ses
         ttk.Label(main, text="TTS sesi:").grid(row=row, column=0, sticky="w", padx=(0, 8))
-        self.voice_var = tk.StringVar(value="tr-TR-EmelNeural")
+        self.voice_var = tk.StringVar(value="tr-TR-AhmetNeural")
         self.voice_combo = ttk.Combobox(main, textvariable=self.voice_var, width=28, state="readonly")
         self.voice_combo.grid(row=row, column=1, sticky="w")
         row += 1
@@ -612,10 +612,11 @@ class VideoFactoryUI:
                 loop.close()
                 tr = [v for v in voices if v["Locale"].startswith("tr-TR")]
                 names = [f"{v['ShortName']} ({v['Gender']})" for v in tr]
-                first_tr = tr[0]["ShortName"] if tr else None
+                # Varsayılan: erkek sesi (Ahmet) varsa onu seç, yoksa ilk Türkçe ses
+                default_voice = next((v["ShortName"] for v in tr if "Ahmet" in v.get("ShortName", "")), tr[0]["ShortName"] if tr else None)
                 self.root.after(0, lambda: self.voice_combo.config(values=names))
-                if first_tr:
-                    self.root.after(0, lambda: self.voice_var.set(first_tr))
+                if default_voice:
+                    self.root.after(0, lambda: self.voice_var.set(default_voice))
             except Exception:
                 pass
         threading.Thread(target=load, daemon=True).start()

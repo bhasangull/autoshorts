@@ -14,7 +14,7 @@ def _cli():
     parser.add_argument("--comment_image", required=True, help="Yorum görseli (png/jpg)")
     parser.add_argument("--comment_text", required=True, help="Yorum metni (TTS okunacak)")
     parser.add_argument("--out", required=True, help="Çıktı MP4 yolu (1080x1920, 30fps)")
-    parser.add_argument("--voice", default="tr-TR-EmelNeural", help="TTS sesi (tr-TR-...)")
+    parser.add_argument("--voice", default="tr-TR-AhmetNeural", help="TTS sesi (tr-TR-...)")
     args = parser.parse_args()
 
     from src.tts import generate_tts
