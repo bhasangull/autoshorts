@@ -271,19 +271,14 @@ def run_pipeline(
         comment_x = "(main_w-overlay_w)/2"
         comment_y = "main_h*0.55-overlay_h/2"
 
-        # TTS sürelerini hesapla (hepsi için)
+        # TTS sürelerini hesapla (hepsi için) – artık trim yok, direkt gerçek süre
         segment_durations = []
         for idx, seg in enumerate(comment_segments):
-            tts_trimmed = os.path.join(tmpdir, "tts_trimmed_%d.mp3" % idx)
-            _run([
-                ffmpeg, "-y", "-i", seg["tts_audio_path"],
-                "-af", "silenceremove=stop_periods=1:stop_duration=0.15:stop_threshold=-40dB",
-                "-c:a", "libmp3lame", "-b:a", "256k", tts_trimmed,
-            ], log_cb=log, timeout=30)
-            dur = get_audio_duration_seconds(tts_trimmed) if os.path.isfile(tts_trimmed) else seg["tts_duration_sec"]
+            tts_path = seg["tts_audio_path"]
+            dur = get_audio_duration_seconds(tts_path) or seg["tts_duration_sec"]
             if dur <= 0:
                 dur = seg["tts_duration_sec"]
-            segment_durations.append((tts_trimmed if os.path.isfile(tts_trimmed) else seg["tts_audio_path"], dur))
+            segment_durations.append((tts_path, dur))
 
         D = max(0.1, float(info.get("duration", 0)))
         main_duration = D
@@ -342,15 +337,21 @@ def run_pipeline(
         concat_parts = [intro_0]
 
         def cut_main(ss, t, out_path):
-            """Main videodan ss saniyeden itibaren t saniye kes; yeniden encode ile güvenilir oynatma."""
+            """Main videodan ss..ss+t aralığını A/V birlikte, hassas şekilde kes (yeniden encode)."""
+            end = ss + t
+            filter_trim = (
+                f"[0:v]trim=start={ss}:end={end},setpts=PTS-STARTPTS[v];"
+                f"[0:a]atrim=start={ss}:end={end},asetpts=PTS-STARTPTS[a]"
+            )
             cmd = [
                 ffmpeg, "-y", "-i", main_mp4,
-                "-ss", str(ss), "-t", str(t),
+                "-filter_complex", filter_trim,
+                "-map", "[v]", "-map", "[a]",
                 "-c:v", "libx264", "-preset", x264_preset, "-crf", str(crf), "-pix_fmt", "yuv420p", "-r", str(fps),
                 "-c:a", "aac", "-b:a", "256k", "-ar", "44100", "-ac", "2",
                 out_path,
             ]
-            return _run(cmd, log_cb=log, timeout=120) == 0 and os.path.isfile(out_path)
+            return _run(cmd, log_cb=log, timeout=240) == 0 and os.path.isfile(out_path)
 
         if N == 1:
             concat_parts.append(main_mp4)
