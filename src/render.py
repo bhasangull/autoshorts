@@ -97,9 +97,24 @@ def get_video_info(video_path: str) -> dict:
                 r_frame_rate = s.get("r_frame_rate", r_frame_rate)
                 break
         duration = float(fmt.get("duration", 0))
-        cmd2 = [ffprobe, "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=codec_type", "-of", "csv=p=0", video_path]
-        r2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=10)
-        has_audio = r2.returncode == 0 and "audio" in (r2.stdout or "")
+
+        # Ses stream'ini daha sağlam tespit et (bazı TikTok dosyalarında önceki csv yöntemi şaşabiliyor)
+        cmd2 = [
+            ffprobe,
+            "-v", "error",
+            "-select_streams", "a",
+            "-show_entries", "stream=codec_type",
+            "-of", "json",
+            video_path,
+        ]
+        try:
+            out2 = subprocess.check_output(cmd2, stderr=subprocess.DEVNULL, text=True, timeout=10)
+            d2 = json.loads(out2)
+            a_streams = d2.get("streams", [])
+            has_audio = any((s.get("codec_type") or "").lower() == "audio" for s in a_streams)
+        except Exception:
+            has_audio = False
+
         return {"width": w, "height": h, "r_frame_rate": r_frame_rate, "duration": duration, "has_audio": has_audio}
     except Exception as e:
         return {"width": 0, "height": 0, "r_frame_rate": "30/1", "duration": 0, "has_audio": False, "error": str(e)}
@@ -194,9 +209,10 @@ def create_header_png(
 
 
 # Çözünürlük: dikey video (genişlik x yükseklik), crf, x264_preset
+# Not: 1080p için de \"fast\" preset kullanarak encode süresini kısaltıyoruz.
 RESOLUTION_PARAMS = {
     "720p": (720, 1280, 23, "fast"),   # out_w, out_h, crf, x264_preset
-    "1080p": (1080, 1920, 23, "medium"),
+    "1080p": (1080, 1920, 23, "fast"),
 }
 
 
@@ -390,7 +406,9 @@ def run_pipeline(
 
         cmd_concat = [
             ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", list_txt,
-            "-c", "copy", output_path,
+            "-c:v", "libx264", "-preset", x264_preset, "-crf", str(crf), "-pix_fmt", "yuv420p", "-r", str(fps),
+            "-c:a", "aac", "-b:a", "256k", "-ar", "44100", "-ac", "2",
+            output_path,
         ]
         if _run(cmd_concat, log_cb=log, timeout=300) != 0:
             log("Hata: Birleştirme yapılamadı.")

@@ -97,7 +97,9 @@ def download_tiktok_video(url: str, out_dir: str, cookies_file: str = "", log_cb
     out_tmpl = os.path.join(out_dir, "tiktok_dl.%(ext)s")
     opts = {
         "outtmpl": out_tmpl,
-        "format": "best[ext=mp4]/best",
+        # TikTok: HEVC + sessiz video yerine, AVC + m4a ses tercih et
+        # Örnek: bv*[vcodec^=avc]+ba[ext=m4a]/b[ext=mp4]/b
+        "format": "bv*[vcodec^=avc]+ba[ext=m4a]/b[ext=mp4]/b",
         "quiet": False,  # Hata mesajlarını görmek için False
         "no_warnings": False,
         "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -108,6 +110,15 @@ def download_tiktok_video(url: str, out_dir: str, cookies_file: str = "", log_cb
             }
         },
     }
+
+    # yt-dlp'nin, uygulama ile gelen ffmpeg'i kullanabilmesi için
+    try:
+        ffmpeg_bin = get_ffmpeg()
+        # get_ffmpeg tam yol döndürüyor ise dizinini ver
+        if os.path.isabs(ffmpeg_bin):
+            opts["ffmpeg_location"] = os.path.dirname(ffmpeg_bin)
+    except Exception:
+        pass
     
     # Öncelik: cookies.txt varsa onu kullan
     if cookies_file and os.path.isfile(cookies_file):
