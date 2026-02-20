@@ -145,73 +145,137 @@ def _font_path():
     return None
 
 
-def create_header_png(
-    width: int,
-    height: int,
+def _font_path_bold():
+    """Bold font: assets/fonts, sonra Windows bold fontları."""
+    app_dir = get_resource_dir()
+    for name in ("Roboto-Bold.ttf", "Inter-Bold.ttf", "NotoSans-Bold.ttf"):
+        p = os.path.join(app_dir, "assets", "fonts", name)
+        if os.path.isfile(p):
+            return p
+    if sys.platform == "win32":
+        for name in ("segoeuib.ttf", "arialbd.ttf"):
+            p = os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "Fonts", name)
+            if os.path.isfile(p):
+                return p
+    return _font_path()
+
+
+def _wrap_text(text, font, max_w, max_lines=3):
+    """Kelime bazlı text wrapping. Satır listesi döner."""
+    if not text:
+        return []
+    words = text.split()
+    lines = []
+    cur = []
+    cur_w = 0
+    for word in words:
+        ww = font.getbbox(word)[2] - font.getbbox(word)[0]
+        sp = font.getbbox(" ")[2] if cur else 0
+        if cur_w + ww + sp <= max_w:
+            cur.append(word)
+            cur_w += ww + sp
+        else:
+            if cur:
+                lines.append(" ".join(cur))
+            cur = [word]
+            cur_w = ww
+    if cur:
+        lines.append(" ".join(cur))
+    return lines[:max_lines]
+
+
+def create_feed_top_png(
+    canvas_w: int,
+    canvas_h: int,
     logo_path: str,
     channel_name: str,
     username: str,
+    post_text: str,
     out_path: str,
-    bar_opacity: float = 0.4,
-) -> None:
-    """Üst bar PNG: logo + kanal adı + kullanıcı adı. Bar yüksekliği min(W,H)*0.10 civarı."""
+    avatar_size_ratio: float = None,
+    padding_ratio: float = None,
+) -> int:
+    """
+    3-block feed layout: avatar row + caption block olarak tek PNG üretir.
+    Video alanı için kalan yüksekliği döner (canvas_h - top_png_h).
+    """
     if not Image or not ImageDraw:
         raise RuntimeError("Pillow (PIL) yüklü değil. pip install Pillow")
-    m = min(width, height)
-    padding = max(4, int(m * 0.02))
-    channel_font_size = max(14, int(m * 0.035))
-    username_font_size = max(12, int(m * 0.028))
-    header_h = max(40, int(m * 0.10))
 
-    font_path = _font_path()
+    bg = (255, 255, 255)
+    pad = int(canvas_w * (padding_ratio or 0.04))
+
+    # --- SECTION 1: Avatar row (~14% of canvas) ---
+    avatar_row_h = int(canvas_h * 0.14)
+    avatar_size = int(avatar_row_h * (avatar_size_ratio or 0.70))
+
+    ch_font_sz = max(28, int(avatar_row_h * 0.28))
+    user_font_sz = max(22, int(avatar_row_h * 0.22))
+    fp = _font_path()
     try:
-        font_channel = ImageFont.truetype(font_path, channel_font_size) if font_path else ImageFont.load_default()
-        font_username = ImageFont.truetype(font_path, username_font_size) if font_path else ImageFont.load_default()
+        f_ch = ImageFont.truetype(fp, ch_font_sz) if fp else ImageFont.load_default()
+        f_user = ImageFont.truetype(fp, user_font_sz) if fp else ImageFont.load_default()
     except Exception:
-        font_channel = font_username = ImageFont.load_default()
+        f_ch = f_user = ImageFont.load_default()
 
-    # Logo yüksekliği = header_h, genişlik orantılı
-    logo_h = header_h
-    logo_img = None
-    if os.path.isfile(logo_path):
-        try:
-            logo_img = Image.open(logo_path).convert("RGBA")
-            lw, lh = logo_img.size
-            scale = logo_h / max(lh, 1)
-            new_lw = int(lw * scale)
-            logo_img = logo_img.resize((new_lw, logo_h), Image.Resampling.LANCZOS)
-        except Exception:
-            logo_img = None
-    logo_w = logo_img.size[0] if logo_img else 0
-    text_x = logo_w + padding * 2
+    # --- SECTION 2: Caption block (ölçüm) – bold, daha büyük ---
+    caption_font_sz = max(36, int(canvas_w * 0.052))
+    fp_bold = _font_path_bold()
+    try:
+        f_cap = ImageFont.truetype(fp_bold, caption_font_sz) if fp_bold else ImageFont.load_default()
+    except Exception:
+        f_cap = ImageFont.load_default()
 
-    # Metin boyutları
-    channel_bbox = font_channel.getbbox(channel_name or " ")
-    ch_w = channel_bbox[2] - channel_bbox[0]
-    ch_h = channel_bbox[3] - channel_bbox[1]
-    user_bbox = font_username.getbbox(username or " ")
-    uh = user_bbox[3] - user_bbox[1]
-    text_block_h = ch_h + 2 + uh
-    bar_h = max(header_h, text_block_h + padding * 2)
+    cap_max_w = canvas_w - pad * 2
+    cap_lines = _wrap_text(post_text or "", f_cap, cap_max_w, max_lines=3)
+    line_h = caption_font_sz + 6
+    caption_text_h = len(cap_lines) * line_h if cap_lines else 0
+    caption_block_h = caption_text_h + pad // 2
 
-    # Bar genişliği = video genişliği
-    bar_w = width
-    img = Image.new("RGBA", (bar_w, bar_h), (0, 0, 0, int(255 * bar_opacity)))
+    # Toplam üst alan
+    top_h = avatar_row_h + caption_block_h
+
+    # --- Çiz ---
+    img = Image.new("RGB", (canvas_w, top_h), bg)
     draw = ImageDraw.Draw(img)
 
-    if logo_img:
-        img.paste(logo_img, (padding, (bar_h - logo_h) // 2), logo_img)
+    # Avatar (circular)
+    av_x = pad
+    av_y = (avatar_row_h - avatar_size) // 2
+    if os.path.isfile(logo_path):
+        try:
+            av = Image.open(logo_path).convert("RGBA").resize(
+                (avatar_size, avatar_size), Image.Resampling.LANCZOS
+            )
+            mask = Image.new("L", (avatar_size, avatar_size), 0)
+            ImageDraw.Draw(mask).ellipse([0, 0, avatar_size, avatar_size], fill=255)
+            av.putalpha(mask)
+            img.paste(av, (av_x, av_y), av)
+        except Exception:
+            pass
 
-    draw.text((text_x, padding), channel_name or "", fill=(255, 255, 255), font=font_channel)
-    draw.text((text_x, padding + ch_h + 2), username or "", fill=(200, 200, 200), font=font_username)
+    # Channel name + username
+    txt_x = av_x + avatar_size + pad
+    ch_bb = f_ch.getbbox(channel_name or " ")
+    ch_h = ch_bb[3] - ch_bb[1]
+    txt_y = av_y + (avatar_size - ch_h - user_font_sz - 4) // 2
+    draw.text((txt_x, txt_y), channel_name or "", fill=(0, 0, 0), font=f_ch)
+    draw.text((txt_x, txt_y + ch_h + 4), username or "", fill=(120, 120, 120), font=f_user)
+
+    # Caption block (ortalanmış)
+    cap_y = avatar_row_h
+    for i, line in enumerate(cap_lines):
+        line_w = f_cap.getbbox(line)[2] - f_cap.getbbox(line)[0] if line else 0
+        lx = (canvas_w - line_w) // 2
+        draw.text((lx, cap_y + i * line_h), line, fill=(30, 30, 30), font=f_cap)
 
     img.save(out_path, "PNG")
+    return top_h
 
 
 # Çözünürlük: dikey video (genişlik x yükseklik), crf, x264_preset
-# Not: 1080p için de \"fast\" preset kullanarak encode süresini kısaltıyoruz.
 RESOLUTION_PARAMS = {
-    "720p": (720, 1280, 23, "fast"),   # out_w, out_h, crf, x264_preset
+    "720p": (720, 1280, 23, "fast"),
     "1080p": (1080, 1920, 23, "fast"),
 }
 
@@ -226,6 +290,10 @@ def run_pipeline(
     log_cb: Optional[Callable[[str], None]] = None,
     quality_resolution: str = "1080p",
     quality_fps: str = "30",
+    post_text: str = "",
+    avatar_size_ratio: float = None,
+    header_padding_ratio: float = None,
+    comment_text_size_ratio: float = None,
 ) -> bool:
     """
     Intro (N yorum segmenti: her biri first frame + header + yorum görseli + TTS) + main.
@@ -262,14 +330,27 @@ def run_pipeline(
             log("Hata: İlk kare çıkarılamadı.")
             return False
 
-        create_header_png(out_w, out_h, logo_path, channel_name, username, header_png)
+        # 3-block layout: avatar row + caption + video
+        top_h = create_feed_top_png(
+            out_w, out_h, logo_path, channel_name, username, post_text or "",
+            header_png, avatar_size_ratio, header_padding_ratio
+        )
         if not os.path.isfile(header_png):
             log("Hata: Header oluşturulamadı.")
             return False
+        log(f"Layout: top_h={top_h}, video_area starts at y={top_h}")
 
-        comment_max_w = int(out_w * 0.85)
+        video_area_y = top_h
+        video_area_h = out_h - top_h  # Kalan alan videoyu doldurur
+        # Video tam genişlikte, kalan yüksekliğe sığdır (FFmpeg çift sayı gerektiriyor)
+        video_target_w = out_w if out_w % 2 == 0 else out_w - 1
+        video_target_h = video_area_h if video_area_h % 2 == 0 else video_area_h - 1
+
+        # Comment overlay video alanının dikey ortasında
+        comment_size_ratio = comment_text_size_ratio or 0.95
+        comment_max_w = int(out_w * comment_size_ratio)
         comment_x = "(main_w-overlay_w)/2"
-        comment_y = "main_h*0.55-overlay_h/2"
+        comment_y = f"{video_area_y}+(({video_area_h}-overlay_h)/2)"
 
         # TTS sürelerini hesapla (hepsi için) – artık trim yok, direkt gerçek süre
         segment_durations = []
@@ -292,15 +373,18 @@ def run_pipeline(
             if t_list[i] >= D - 0.01:
                 t_list[i] = max(0.0, D - 0.01)
 
-        # 1) İlk yorum videonun en başında (intro)
+        # 1) İlk yorum videonun en başında (intro) - feed-style layout
         seg0 = comment_segments[0]
         tts_use_0, t1 = segment_durations[0]
         intro_0 = os.path.join(tmpdir, "intro_0.mp4")
+        # Canvas: beyaz arka plan + header üstte + video kalan alanı kaplıyor + comment overlay videonun ÜSTÜNE
         filter_intro = (
-            f"[0:v]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2,setsar=1[base];"
-            f"[base][1:v]overlay=0:0[with_header];"
+            f"color=c=white:s={out_w}x{out_h}[canvas];"
+            f"[canvas][1:v]overlay=0:0[with_header];"
+            f"[0:v]scale={video_target_w}:{video_target_h}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad={video_target_w}:{video_target_h}:(ow-iw)/2:(oh-ih)/2:color=white[scaled_video];"
+            f"[with_header][scaled_video]overlay=0:{video_area_y}[with_video];"
             f"[2:v]scale={comment_max_w}:-1[comment];"
-            f"[with_header][comment]overlay={comment_x}:{comment_y}[v]"
+            f"[with_video][comment]overlay={comment_x}:{comment_y}[v]"
         )
         cmd_intro0 = [
             ffmpeg, "-y", "-loop", "1", "-i", first_frame, "-i", header_png, "-i", seg0["comment_image_path"], "-i", tts_use_0,
@@ -312,8 +396,13 @@ def run_pipeline(
             log("Hata: Intro (yorum 1) oluşturulamadı.")
             return False
 
-        # 2) Ana video tam (header ile)
-        filter_main = f"[0:v]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2,setsar=1[scaled];[scaled][1:v]overlay=0:0[v]"
+        # 2) Ana video tam (feed-style: canvas + header + video kalan alanı kaplıyor)
+        filter_main = (
+            f"color=c=white:s={out_w}x{out_h}[canvas];"
+            f"[canvas][1:v]overlay=0:0[with_header];"
+            f"[0:v]scale={video_target_w}:{video_target_h}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad={video_target_w}:{video_target_h}:(ow-iw)/2:(oh-ih)/2:color=white[scaled];"
+            f"[with_header][scaled]overlay=0:{video_area_y}[v]"
+        )
         has_audio = info.get("has_audio", True)
         if has_audio:
             cmd_main = [
@@ -323,7 +412,13 @@ def run_pipeline(
                 "-c:a", "aac", "-b:a", "256k", "-ar", "44100", "-ac", "2", main_mp4,
             ]
         else:
-            filter_main = f"[0:v]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2,setsar=1[scaled];[scaled][2:v]overlay=0:0[v];[1:a]atrim=0:" + str(main_duration) + ",asetpts=PTS-STARTPTS[a]"
+            filter_main = (
+                f"color=c=white:s={out_w}x{out_h}[canvas];"
+                f"[canvas][2:v]overlay=0:0[with_header];"
+                f"[0:v]scale={video_target_w}:{video_target_h}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad={video_target_w}:{video_target_h}:(ow-iw)/2:(oh-ih)/2:color=white[scaled];"
+                f"[with_header][scaled]overlay=0:{video_area_y}[v];"
+                f"[1:a]atrim=0:{main_duration},asetpts=PTS-STARTPTS[a]"
+            )
             cmd_main = [
                 ffmpeg, "-y", "-i", video_path, "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-i", header_png,
                 "-filter_complex", filter_main, "-map", "[v]", "-map", "[a]", "-t", str(main_duration),
@@ -367,10 +462,12 @@ def run_pipeline(
                     frame_at = first_frame
                 seg_mp4 = os.path.join(tmpdir, "seg_%d.mp4" % idx)
                 filter_seg = (
-                    f"[0:v]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2,setsar=1[base];"
-                    f"[base][1:v]overlay=0:0[with_header];"
+                    f"color=c=white:s={out_w}x{out_h}[canvas];"
+                    f"[canvas][1:v]overlay=0:0[with_header];"
+                    f"[0:v]scale={video_target_w}:{video_target_h}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad={video_target_w}:{video_target_h}:(ow-iw)/2:(oh-ih)/2:color=white[scaled_video];"
+                    f"[with_header][scaled_video]overlay=0:{video_area_y}[with_video];"
                     f"[2:v]scale={comment_max_w}:-1[comment];"
-                    f"[with_header][comment]overlay={comment_x}:{comment_y}[v]"
+                    f"[with_video][comment]overlay={comment_x}:{comment_y}[v]"
                 )
                 cmd_seg = [
                     ffmpeg, "-y", "-loop", "1", "-i", frame_at, "-i", header_png, "-i", seg["comment_image_path"], "-i", tts_use,

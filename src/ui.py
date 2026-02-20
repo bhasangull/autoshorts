@@ -220,8 +220,8 @@ class VideoFactoryUI:
     def __init__(self, root):
         self.root = root
         self.root.title("AutoShorts")
-        self.root.geometry("720x820")
-        self.root.minsize(600, 700)
+        self.root.geometry("680x780")
+        self.root.minsize(580, 660)
         self.app_dir = get_app_dir()
         self.default_out = os.path.join(self.app_dir, "output")
         self._abort = False
@@ -238,199 +238,267 @@ class VideoFactoryUI:
         self.quality_fps = self._settings.get("quality_fps", "30")
         self.cookies_file = (self._settings.get("downloader") or {}).get("cookies_file", "")
         self.comment_count = max(1, min(3, int(self._settings.get("comment_count", 1))))
+        layout_cfg = self._settings.get("layout", {})
+        self.post_text = layout_cfg.get("post_text", "")
+        self.avatar_size_ratio = float(layout_cfg.get("avatar_size_ratio", 0.70))
+        self.header_padding_ratio = float(layout_cfg.get("header_padding_ratio", 0.04))
+        self.comment_text_size_ratio = float(layout_cfg.get("comment_text_size_ratio", 0.95))
+        self._apply_theme()
         self.setup_ui()
         self._refresh_channel_list()
 
+    def _apply_theme(self):
+        style = ttk.Style()
+        style.theme_use("clam")
+        BG = "#f5f5f5"
+        ACCENT = "#2563eb"
+        self.root.configure(bg=BG)
+        style.configure(".", background=BG, font=("Segoe UI", 10))
+        style.configure("TNotebook", background=BG, borderwidth=0)
+        style.configure("TNotebook.Tab", padding=[14, 6], font=("Segoe UI", 10, "bold"))
+        style.map("TNotebook.Tab",
+                   background=[("selected", "#ffffff"), ("!selected", "#e0e0e0")],
+                   foreground=[("selected", ACCENT), ("!selected", "#555")])
+        style.configure("TLabelframe", background="#ffffff", borderwidth=1, relief="solid")
+        style.configure("TLabelframe.Label", background="#ffffff", foreground="#333", font=("Segoe UI", 9, "bold"))
+        style.configure("TButton", padding=[8, 4])
+        style.configure("Accent.TButton", foreground="#fff", background=ACCENT, font=("Segoe UI", 11, "bold"))
+        style.map("Accent.TButton",
+                   background=[("active", "#1d4ed8"), ("!active", ACCENT)])
+        style.configure("Title.TLabel", font=("Segoe UI", 16, "bold"), foreground=ACCENT, background=BG)
+
     def setup_ui(self):
-        main = ttk.Frame(self.root, padding="10")
-        main.grid(row=0, column=0, sticky="nsew")
+        outer = ttk.Frame(self.root, padding="8")
+        outer.grid(row=0, column=0, sticky="nsew")
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
-        main.columnconfigure(1, weight=1)
+        outer.columnconfigure(0, weight=1)
 
+        ttk.Label(outer, text="AutoShorts", style="Title.TLabel").grid(row=0, column=0, pady=(0, 6))
+
+        nb = ttk.Notebook(outer)
+        nb.grid(row=1, column=0, sticky="nsew")
+        outer.rowconfigure(1, weight=1)
+
+        # ── Tab 1: Video Oluştur ──
+        tab_main = ttk.Frame(nb, padding="8")
+        nb.add(tab_main, text="  Video Oluştur  ")
+        tab_main.columnconfigure(0, weight=1)
+        self._build_main_tab(tab_main)
+
+        # ── Tab 2: Ayarlar ──
+        tab_settings = ttk.Frame(nb, padding="8")
+        nb.add(tab_settings, text="  Ayarlar  ")
+        tab_settings.columnconfigure(0, weight=1)
+        self._build_settings_tab(tab_settings)
+
+        self._load_voices()
+
+    # ─────────────────── TAB 1: ANA ───────────────────
+    def _build_main_tab(self, parent):
         row = 0
-        ttk.Label(main, text="AutoShorts", font=("Arial", 14, "bold")).grid(row=row, column=0, columnspan=2, pady=(0, 10))
+
+        # — Video Kaynağı —
+        src_frame = ttk.LabelFrame(parent, text="Video Kaynağı", padding="8")
+        src_frame.grid(row=row, column=0, sticky="ew", pady=(0, 6))
+        src_frame.columnconfigure(1, weight=1)
         row += 1
 
-        # Video kaynağı: TikTok URL veya dosya (birbirini dışlar)
         self.use_tiktok_url_var = tk.BooleanVar(value=self.use_tiktok_url)
-        ttk.Checkbutton(main, text="TikTok URL kullan", variable=self.use_tiktok_url_var, command=self._toggle_video_source).grid(row=row, column=0, columnspan=2, sticky="w")
-        row += 1
+        ttk.Checkbutton(src_frame, text="TikTok URL kullan", variable=self.use_tiktok_url_var, command=self._toggle_video_source).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 4))
 
-        self.url_frame = ttk.Frame(main)
-        self.url_frame.grid(row=row, column=0, columnspan=2, sticky="ew")
+        self.url_frame = ttk.Frame(src_frame)
+        self.url_frame.grid(row=1, column=0, columnspan=2, sticky="ew")
         self.url_frame.columnconfigure(1, weight=1)
-        ttk.Label(self.url_frame, text="TikTok URL:").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        ttk.Label(self.url_frame, text="URL:").grid(row=0, column=0, sticky="w", padx=(0, 6))
         self.tiktok_url_var = tk.StringVar()
-        ttk.Entry(self.url_frame, textvariable=self.tiktok_url_var, width=55).grid(row=0, column=1, sticky="ew", padx=(0, 5))
+        ttk.Entry(self.url_frame, textvariable=self.tiktok_url_var).grid(row=0, column=1, sticky="ew")
         if not self.use_tiktok_url:
             self.url_frame.grid_remove()
-        row += 1
 
-        self.video_frame = ttk.Frame(main)
-        self.video_frame.grid(row=row, column=0, columnspan=2, sticky="ew")
+        self.video_frame = ttk.Frame(src_frame)
+        self.video_frame.grid(row=2, column=0, columnspan=2, sticky="ew")
         self.video_frame.columnconfigure(1, weight=1)
-        ttk.Label(self.video_frame, text="Video (mp4/mov):").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        ttk.Label(self.video_frame, text="Dosya:").grid(row=0, column=0, sticky="w", padx=(0, 6))
         self.video_var = tk.StringVar()
-        f_vid = ttk.Frame(self.video_frame)
-        f_vid.grid(row=0, column=1, sticky="ew")
-        f_vid.columnconfigure(0, weight=1)
-        ttk.Entry(f_vid, textvariable=self.video_var, width=50).grid(row=0, column=0, sticky="ew", padx=(0, 5))
-        ttk.Button(f_vid, text="Seç", command=lambda: self._file(self.video_var, "Video", [("Video", "*.mp4 *.mov")]), width=8).grid(row=0, column=1)
+        ttk.Entry(self.video_frame, textvariable=self.video_var).grid(row=0, column=1, sticky="ew", padx=(0, 4))
+        ttk.Button(self.video_frame, text="Seç", command=lambda: self._file(self.video_var, "Video", [("Video", "*.mp4 *.mov")]), width=6).grid(row=0, column=2)
         if self.use_tiktok_url:
             self.video_frame.grid_remove()
-        row += 1
 
         self.auto_video_var = tk.BooleanVar(value=self.auto_video_enabled)
-        self.chk_auto_video = ttk.Checkbutton(main, text="Otomatik video (son indirilen)", variable=self.auto_video_var, command=self._toggle_auto_video)
-        self.chk_auto_video.grid(row=row, column=0, columnspan=2, sticky="w")
+        self.chk_auto_video = ttk.Checkbutton(src_frame, text="Otomatik (son indirilen)", variable=self.auto_video_var, command=self._toggle_auto_video)
+        self.chk_auto_video.grid(row=3, column=0, columnspan=2, sticky="w", pady=(2, 0))
         if self.use_tiktok_url:
             self.chk_auto_video.grid_remove()
+
+        # — Kanal + Post —
+        chan_frame = ttk.LabelFrame(parent, text="Kanal & Post", padding="8")
+        chan_frame.grid(row=row, column=0, sticky="ew", pady=(0, 6))
+        chan_frame.columnconfigure(1, weight=1)
         row += 1
 
-        self.auto_image_var = tk.BooleanVar(value=self.auto_image_enabled)
-        ttk.Checkbutton(main, text="Otomatik görsel (son ekran görüntüsü)", variable=self.auto_image_var, command=self._toggle_auto_image).grid(row=row, column=0, columnspan=2, sticky="w")
-        row += 1
-
-        # Video klasörü (sadece otomatik video aktifken)
-        self.auto_video_frame = ttk.Frame(main)
-        self.auto_video_frame.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(4, 0))
-        self.auto_video_frame.columnconfigure(1, weight=1)
-        ttk.Label(self.auto_video_frame, text="Video klasörü:").grid(row=0, column=0, sticky="w", padx=(0, 8))
-        self.video_folder_var = tk.StringVar(value=self.video_folder)
-        f_v = ttk.Frame(self.auto_video_frame)
-        f_v.grid(row=0, column=1, sticky="ew")
-        f_v.columnconfigure(0, weight=1)
-        ttk.Entry(f_v, textvariable=self.video_folder_var, width=50).grid(row=0, column=0, sticky="ew", padx=(0, 5))
-        ttk.Button(f_v, text="Seç", command=self._choose_video_folder, width=8).grid(row=0, column=1)
-        if not self.auto_video_enabled:
-            self.auto_video_frame.grid_remove()
-        row += 1
-
-        # Görsel klasörü (sadece otomatik görsel aktifken)
-        self.auto_image_frame = ttk.Frame(main)
-        self.auto_image_frame.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(4, 4))
-        self.auto_image_frame.columnconfigure(1, weight=1)
-        ttk.Label(self.auto_image_frame, text="Görsel klasörü:").grid(row=0, column=0, sticky="w", padx=(0, 8))
-        self.image_folder_var = tk.StringVar(value=self.image_folder)
-        f_i = ttk.Frame(self.auto_image_frame)
-        f_i.grid(row=0, column=1, sticky="ew")
-        f_i.columnconfigure(0, weight=1)
-        ttk.Entry(f_i, textvariable=self.image_folder_var, width=50).grid(row=0, column=0, sticky="ew", padx=(0, 5))
-        ttk.Button(f_i, text="Seç", command=self._choose_image_folder, width=8).grid(row=0, column=1)
-        if not self.auto_image_enabled:
-            self.auto_image_frame.grid_remove()
-        row += 1
-
-        # Kanal seçimi
-        ttk.Label(main, text="Kanal:").grid(row=row, column=0, sticky="w", padx=(0, 8))
-        f_chan = ttk.Frame(main)
-        f_chan.grid(row=row, column=1, sticky="ew")
+        ttk.Label(chan_frame, text="Kanal:").grid(row=0, column=0, sticky="w", padx=(0, 6))
+        f_chan = ttk.Frame(chan_frame)
+        f_chan.grid(row=0, column=1, sticky="ew")
         f_chan.columnconfigure(0, weight=1)
         self.channel_choice_var = tk.StringVar()
-        self.channel_combo = ttk.Combobox(f_chan, textvariable=self.channel_choice_var, width=35, state="readonly")
-        self.channel_combo.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        self.channel_combo = ttk.Combobox(f_chan, textvariable=self.channel_choice_var, state="readonly")
+        self.channel_combo.grid(row=0, column=0, sticky="ew", padx=(0, 4))
         self.channel_combo.bind("<<ComboboxSelected>>", self._on_channel_selected)
-        ttk.Button(f_chan, text="Yeni kanal", command=self._new_channel_dialog, width=10).grid(row=0, column=1)
-        row += 1
+        ttk.Button(f_chan, text="+ Yeni", command=self._new_channel_dialog, width=7).grid(row=0, column=1)
 
         self.logo_var = tk.StringVar()
         self.channel_var = tk.StringVar()
         self.username_var = tk.StringVar()
 
-        # Yorum sayısı (1, 2 veya 3)
-        ttk.Label(main, text="Yorum sayısı:").grid(row=row, column=0, sticky="w", padx=(0, 8))
-        self.comment_count_var = tk.StringVar(value=str(self.comment_count))
-        count_combo = ttk.Combobox(main, textvariable=self.comment_count_var, values=("1", "2", "3"), width=6, state="readonly")
-        count_combo.grid(row=row, column=1, sticky="w")
-        count_combo.bind("<<ComboboxSelected>>", self._on_comment_count_changed)
+        ttk.Label(chan_frame, text="Post metni:").grid(row=1, column=0, sticky="w", padx=(0, 6), pady=(4, 0))
+        self.post_text_var = tk.StringVar(value=self.post_text)
+        ttk.Entry(chan_frame, textvariable=self.post_text_var).grid(row=1, column=1, sticky="ew", pady=(4, 0))
+
+        # — Yorumlar —
+        comments_frame = ttk.LabelFrame(parent, text="Yorumlar", padding="8")
+        comments_frame.grid(row=row, column=0, sticky="ew", pady=(0, 6))
+        comments_frame.columnconfigure(1, weight=1)
         row += 1
 
-        # Dinamik yorum blokları (Comment 1, Comment 2, Comment 3)
+        ttk.Label(comments_frame, text="Sayı:").grid(row=0, column=0, sticky="w", padx=(0, 6))
+        self.comment_count_var = tk.StringVar(value=str(self.comment_count))
+        f_count = ttk.Frame(comments_frame)
+        f_count.grid(row=0, column=1, sticky="w")
+        count_combo = ttk.Combobox(f_count, textvariable=self.comment_count_var, values=("1", "2", "3"), width=4, state="readonly")
+        count_combo.pack(side=tk.LEFT)
+        count_combo.bind("<<ComboboxSelected>>", self._on_comment_count_changed)
+
+        self.auto_image_var = tk.BooleanVar(value=self.auto_image_enabled)
+        ttk.Checkbutton(f_count, text="Otomatik görsel", variable=self.auto_image_var, command=self._toggle_auto_image).pack(side=tk.LEFT, padx=(12, 0))
+
+        ttk.Label(comments_frame, text="TTS sesi:").grid(row=1, column=0, sticky="w", padx=(0, 6), pady=(4, 0))
+        self.voice_var = tk.StringVar(value="tr-TR-AhmetNeural")
+        self.voice_combo = ttk.Combobox(comments_frame, textvariable=self.voice_var, state="readonly")
+        self.voice_combo.grid(row=1, column=1, sticky="ew", pady=(4, 0))
+
         self.comment_blocks = []
+        self._comments_container = ttk.Frame(comments_frame)
+        self._comments_container.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        self._comments_container.columnconfigure(0, weight=1)
         for i in range(3):
             block = {}
-            block_frame = ttk.LabelFrame(main, text="Yorum " + str(i + 1), padding="4")
-            block_frame.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(4, 4))
-            block_frame.columnconfigure(1, weight=1)
-            row += 1
-            ttk.Label(block_frame, text="Metin (TTS):").grid(row=0, column=0, sticky="nw", padx=(0, 8), pady=(2, 0))
-            txt = scrolledtext.ScrolledText(block_frame, height=3, width=50, wrap=tk.WORD)
-            txt.grid(row=0, column=1, sticky="ew", padx=(0, 0), pady=(2, 4))
-            block_frame.rowconfigure(0, weight=0)
-            row_inner = 1
-            ttk.Label(block_frame, text="Görsel (png/jpg):").grid(row=row_inner, column=0, sticky="w", padx=(0, 8), pady=(2, 0))
+            bf = ttk.Frame(self._comments_container, padding="4")
+            bf.grid(row=i, column=0, sticky="ew", pady=(0, 4))
+            bf.columnconfigure(1, weight=1)
+            ttk.Label(bf, text=f"#{i+1}", font=("Segoe UI", 9, "bold"), width=3).grid(row=0, column=0, rowspan=2, sticky="n", padx=(0, 4))
+            txt = scrolledtext.ScrolledText(bf, height=2, wrap=tk.WORD, font=("Segoe UI", 9))
+            txt.grid(row=0, column=1, sticky="ew", pady=(0, 2))
             img_var = tk.StringVar()
-            f_img = ttk.Frame(block_frame)
-            f_img.grid(row=row_inner, column=1, sticky="ew")
+            f_img = ttk.Frame(bf)
+            f_img.grid(row=1, column=1, sticky="ew")
             f_img.columnconfigure(0, weight=1)
-            ttk.Entry(f_img, textvariable=img_var, width=45).grid(row=0, column=0, sticky="ew", padx=(0, 5))
-            ttk.Button(f_img, text="Seç", command=lambda v=img_var, idx=i: self._file(v, "Yorum görseli " + str(idx + 1), [("Görsel", "*.png *.jpg *.jpeg")]), width=8).grid(row=0, column=1)
-            block["frame"] = block_frame
+            ttk.Entry(f_img, textvariable=img_var, font=("Segoe UI", 8)).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+            ttk.Button(f_img, text="Görsel", command=lambda v=img_var, idx=i: self._file(v, f"Yorum {idx+1}", [("Görsel", "*.png *.jpg *.jpeg")]), width=6).grid(row=0, column=1)
+            block["frame"] = bf
             block["text"] = txt
             block["img_var"] = img_var
             self.comment_blocks.append(block)
-            row += 1
-
         self._show_comment_blocks()
 
-        # TTS ses
-        ttk.Label(main, text="TTS sesi:").grid(row=row, column=0, sticky="w", padx=(0, 8))
-        self.voice_var = tk.StringVar(value="tr-TR-AhmetNeural")
-        self.voice_combo = ttk.Combobox(main, textvariable=self.voice_var, width=28, state="readonly")
-        self.voice_combo.grid(row=row, column=1, sticky="w")
+        # — Başlat + Log —
+        action_frame = ttk.Frame(parent)
+        action_frame.grid(row=row, column=0, sticky="ew", pady=(0, 4))
+        action_frame.columnconfigure(1, weight=1)
         row += 1
 
-        # Çıktı
-        ttk.Label(main, text="Çıktı dosyası:").grid(row=row, column=0, sticky="w", padx=(0, 8))
         self.out_var = tk.StringVar(value=os.path.join(self.default_out, "output.mp4"))
-        f = ttk.Frame(main)
-        f.grid(row=row, column=1, sticky="ew")
-        f.columnconfigure(0, weight=1)
-        ttk.Entry(f, textvariable=self.out_var, width=50).grid(row=0, column=0, sticky="ew", padx=(0, 5))
-        ttk.Button(f, text="Kaydet yeri", command=self._out_file, width=10).grid(row=0, column=1)
+
+        self.render_btn = ttk.Button(action_frame, text="Videoyu Oluştur", command=self.do_render, style="Accent.TButton", width=18)
+        self.render_btn.grid(row=0, column=0, padx=(0, 8))
+        f_out = ttk.Frame(action_frame)
+        f_out.grid(row=0, column=1, sticky="ew")
+        f_out.columnconfigure(0, weight=1)
+        ttk.Entry(f_out, textvariable=self.out_var, font=("Segoe UI", 8)).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        ttk.Button(f_out, text="...", command=self._out_file, width=3).grid(row=0, column=1)
+
+        self.log_text = scrolledtext.ScrolledText(parent, height=10, wrap=tk.WORD, font=("Consolas", 8), bg="#1e1e1e", fg="#d4d4d4", insertbackground="#fff")
+        self.log_text.grid(row=row, column=0, sticky="nsew", pady=(0, 0))
+        parent.rowconfigure(row, weight=1)
+
+    # ─────────────────── TAB 2: AYARLAR ───────────────────
+    def _build_settings_tab(self, parent):
+        row = 0
+
+        # — Kalite —
+        q_frame = ttk.LabelFrame(parent, text="Video Kalitesi", padding="8")
+        q_frame.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        q_frame.columnconfigure(1, weight=1)
         row += 1
 
-        # Çözünürlük (720p / 1080p)
-        ttk.Label(main, text="Çözünürlük:").grid(row=row, column=0, sticky="w", padx=(0, 8))
+        ttk.Label(q_frame, text="Çözünürlük:").grid(row=0, column=0, sticky="w", padx=(0, 6))
         self.quality_resolution_var = tk.StringVar(value=self.quality_resolution)
-        res_combo = ttk.Combobox(main, textvariable=self.quality_resolution_var, values=("720p", "1080p"), width=8, state="readonly")
-        res_combo.grid(row=row, column=1, sticky="w")
+        res_combo = ttk.Combobox(q_frame, textvariable=self.quality_resolution_var, values=("720p", "1080p"), width=8, state="readonly")
+        res_combo.grid(row=0, column=1, sticky="w")
         res_combo.bind("<<ComboboxSelected>>", lambda e: self._save_quality_settings())
-        row += 1
-        # FPS (30 / 60)
-        ttk.Label(main, text="FPS:").grid(row=row, column=0, sticky="w", padx=(0, 8))
+
+        ttk.Label(q_frame, text="FPS:").grid(row=1, column=0, sticky="w", padx=(0, 6), pady=(4, 0))
         self.quality_fps_var = tk.StringVar(value=self.quality_fps)
-        fps_combo = ttk.Combobox(main, textvariable=self.quality_fps_var, values=("30", "60"), width=8, state="readonly")
-        fps_combo.grid(row=row, column=1, sticky="w")
+        fps_combo = ttk.Combobox(q_frame, textvariable=self.quality_fps_var, values=("30", "60"), width=8, state="readonly")
+        fps_combo.grid(row=1, column=1, sticky="w", pady=(4, 0))
         fps_combo.bind("<<ComboboxSelected>>", lambda e: self._save_quality_settings())
+
+        # — Layout —
+        l_frame = ttk.LabelFrame(parent, text="Layout", padding="8")
+        l_frame.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        l_frame.columnconfigure(1, weight=1)
         row += 1
 
-        # Cookies (opsiyonel)
-        ttk.Label(main, text="Cookies (cookies.txt):").grid(row=row, column=0, sticky="w", padx=(0, 8))
+        labels = ["Avatar boyutu (%)", "Kenar boşluğu (%)", "Yorum genişliği (%)"]
+        defaults = [self.avatar_size_ratio * 100, self.header_padding_ratio * 100, self.comment_text_size_ratio * 100]
+        ranges = [(40, 90), (2, 8), (70, 100)]
+        self.avatar_size_var = tk.DoubleVar(value=defaults[0])
+        self.header_padding_var = tk.DoubleVar(value=defaults[1])
+        self.comment_text_size_var = tk.DoubleVar(value=defaults[2])
+        vars_ = [self.avatar_size_var, self.header_padding_var, self.comment_text_size_var]
+
+        for i, (lbl, var, (lo, hi)) in enumerate(zip(labels, vars_, ranges)):
+            ttk.Label(l_frame, text=lbl + ":").grid(row=i, column=0, sticky="w", padx=(0, 6), pady=2)
+            sp = ttk.Spinbox(l_frame, from_=lo, to=hi, textvariable=var, width=8)
+            sp.grid(row=i, column=1, sticky="w", pady=2)
+            sp.bind("<FocusOut>", lambda e: self._save_layout_settings())
+
+        # — Klasörler —
+        f_frame = ttk.LabelFrame(parent, text="Otomatik Klasörler", padding="8")
+        f_frame.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        f_frame.columnconfigure(1, weight=1)
+        row += 1
+
+        ttk.Label(f_frame, text="Video klasörü:").grid(row=0, column=0, sticky="w", padx=(0, 6))
+        self.video_folder_var = tk.StringVar(value=self.video_folder)
+        f_vf = ttk.Frame(f_frame)
+        f_vf.grid(row=0, column=1, sticky="ew")
+        f_vf.columnconfigure(0, weight=1)
+        ttk.Entry(f_vf, textvariable=self.video_folder_var).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        ttk.Button(f_vf, text="...", command=self._choose_video_folder, width=3).grid(row=0, column=1)
+
+        ttk.Label(f_frame, text="Görsel klasörü:").grid(row=1, column=0, sticky="w", padx=(0, 6), pady=(4, 0))
+        self.image_folder_var = tk.StringVar(value=self.image_folder)
+        f_if = ttk.Frame(f_frame)
+        f_if.grid(row=1, column=1, sticky="ew", pady=(4, 0))
+        f_if.columnconfigure(0, weight=1)
+        ttk.Entry(f_if, textvariable=self.image_folder_var).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        ttk.Button(f_if, text="...", command=self._choose_image_folder, width=3).grid(row=0, column=1)
+
+        # — Cookies —
+        c_frame = ttk.LabelFrame(parent, text="TikTok Cookies", padding="8")
+        c_frame.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        c_frame.columnconfigure(1, weight=1)
+        row += 1
+
+        ttk.Label(c_frame, text="cookies.txt:").grid(row=0, column=0, sticky="w", padx=(0, 6))
         self.cookies_var = tk.StringVar(value=self.cookies_file)
-        f_cook = ttk.Frame(main)
-        f_cook.grid(row=row, column=1, sticky="ew")
-        f_cook.columnconfigure(0, weight=1)
-        ttk.Entry(f_cook, textvariable=self.cookies_var, width=40).grid(row=0, column=0, sticky="ew", padx=(0, 5))
-        ttk.Button(f_cook, text="Seç", command=self._choose_cookies, width=8).grid(row=0, column=1)
-        row += 1
-
-        # Başlat
-        btn_f = ttk.Frame(main)
-        btn_f.grid(row=row, column=0, columnspan=2, pady=10)
-        self.render_btn = ttk.Button(btn_f, text="Başlat", command=self.do_render, width=14)
-        self.render_btn.pack(side=tk.LEFT, padx=5)
-        row += 1
-
-        # Log
-        ttk.Label(main, text="Log:").grid(row=row, column=0, sticky="nw", padx=(0, 8))
-        self.log_text = scrolledtext.ScrolledText(main, height=14, wrap=tk.WORD)
-        self.log_text.grid(row=row, column=1, sticky="nsew", pady=(4, 0))
-        main.rowconfigure(row, weight=1)
-        row += 1
-
-        self._load_voices()
+        f_ck = ttk.Frame(c_frame)
+        f_ck.grid(row=0, column=1, sticky="ew")
+        f_ck.columnconfigure(0, weight=1)
+        ttk.Entry(f_ck, textvariable=self.cookies_var).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        ttk.Button(f_ck, text="...", command=self._choose_cookies, width=3).grid(row=0, column=1)
 
     def _refresh_channel_list(self):
         self._channels = load_channels()
@@ -524,7 +592,6 @@ class VideoFactoryUI:
             self.url_frame.grid_remove()
             self.video_frame.grid()
             self.chk_auto_video.grid()
-        self._show_hide_auto_frame()
 
     def _toggle_auto_video(self):
         v = self.auto_video_var.get()
@@ -535,23 +602,11 @@ class VideoFactoryUI:
         self.auto_video_enabled = self.auto_video_var.get()
         self._settings["auto_video_enabled"] = self.auto_video_enabled
         save_settings(self._settings)
-        self._show_hide_auto_frame()
 
     def _toggle_auto_image(self):
         self.auto_image_enabled = self.auto_image_var.get()
         self._settings["auto_image_enabled"] = self.auto_image_enabled
         save_settings(self._settings)
-        self._show_hide_auto_frame()
-
-    def _show_hide_auto_frame(self):
-        if self.auto_video_var.get():
-            self.auto_video_frame.grid()
-        else:
-            self.auto_video_frame.grid_remove()
-        if self.auto_image_var.get():
-            self.auto_image_frame.grid()
-        else:
-            self.auto_image_frame.grid_remove()
 
     def _on_comment_count_changed(self, event=None):
         try:
@@ -579,6 +634,21 @@ class VideoFactoryUI:
         self.quality_fps = self.quality_fps_var.get()
         self._settings["quality_resolution"] = self.quality_resolution
         self._settings["quality_fps"] = self.quality_fps
+        save_settings(self._settings)
+
+    def _save_layout_settings(self):
+        if not hasattr(self, "post_text_var"):
+            return
+        self.post_text = self.post_text_var.get().strip()
+        self.avatar_size_ratio = self.avatar_size_var.get() / 100.0
+        self.header_padding_ratio = self.header_padding_var.get() / 100.0
+        self.comment_text_size_ratio = self.comment_text_size_var.get() / 100.0
+        if "layout" not in self._settings:
+            self._settings["layout"] = {}
+        self._settings["layout"]["post_text"] = self.post_text
+        self._settings["layout"]["avatar_size_ratio"] = self.avatar_size_ratio
+        self._settings["layout"]["header_padding_ratio"] = self.header_padding_ratio
+        self._settings["layout"]["comment_text_size_ratio"] = self.comment_text_size_ratio
         save_settings(self._settings)
 
     def _choose_cookies(self):
@@ -842,6 +912,10 @@ class VideoFactoryUI:
                     log_cb=lambda s: self.root.after(0, lambda m=s: self.log(m)),
                     quality_resolution=quality_resolution,
                     quality_fps=quality_fps,
+                    post_text=self.post_text_var.get().strip(),
+                    avatar_size_ratio=self.avatar_size_var.get() / 100.0,
+                    header_padding_ratio=self.header_padding_var.get() / 100.0,
+                    comment_text_size_ratio=self.comment_text_size_var.get() / 100.0,
                 )
                 if ok:
                     self.root.after(0, lambda: messagebox.showinfo("Tamam", f"Video kaydedildi:\n{out}"))
